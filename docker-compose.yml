@@ -1,0 +1,153 @@
+services:
+  # --- ADS-B (1090MHz) ---------------------------------------------------
+  # Decodes 1090MHz ADS-B, serves the local tar1090 map, and feeds adsb.lol
+  # and adsb.fi directly (no separate container needed for either network).
+  ultrafeeder:
+    image: ghcr.io/sdr-enthusiasts/docker-adsb-ultrafeeder
+    container_name: ultrafeeder
+    hostname: ultrafeeder
+    restart: unless-stopped
+    device_cgroup_rules:
+      - "c 189:* rwm"
+    ports:
+      - "${TAR1090_PORT:-8080}:80"
+    environment:
+      - TZ=${TZ:-UTC}
+      - READSB_DEVICE_TYPE=rtlsdr
+      - READSB_GAIN=auto
+      - READSB_RTLSDR_DEVICE=${SDR_1090_SERIAL}
+      - READSB_RTLSDR_PPM=${SDR_1090_PPM:-0}
+      - READSB_LAT=${STATION_LAT}
+      - READSB_LON=${STATION_LON}
+      - READSB_ALT=${STATION_ALT_M}m
+      - READSB_RX_LOCATION_ACCURACY=2
+      - READSB_STATS_RANGE=true
+      - UUID=${ADSBLOL_UUID}
+      - MLAT_USER=${STATION_NAME}
+      - ULTRAFEEDER_CONFIG=adsb,in.adsb.lol,30004,beast_reduce_plus_out,uuid=${ADSBLOL_UUID};mlat,in.adsb.lol,31090,uuid=${ADSBLOL_UUID};adsb,feed.adsb.fi,30004,beast_reduce_plus_out;mlat,feed.adsb.fi,31090;adsb,feed.airplanes.live,30004,beast_reduce_plus_out;mlat,feed.airplanes.live,31090;adsb,feed.planespotters.net,30004,beast_reduce_plus_out;mlat,mlat.planespotters.net,31090;adsb,feed1.adsbexchange.com,30004,beast_reduce_plus_out;mlat,feed.adsbexchange.com,31090
+      - TAR1090_PAGETITLE=${STATION_NAME}
+      - TAR1090_MESSAGERATEINTITLE=true
+      - TAR1090_PLANECOUNTINTITLE=true
+      - TAR1090_SITESHOW=true
+      - UPDATE_TAR1090=true
+    volumes:
+      - ultrafeeder_globe_history:/var/globe_history
+      - ultrafeeder_graphs:/var/lib/collectd
+      - /dev/bus/usb:/dev/bus/usb
+    tmpfs:
+      - /run:exec,size=256M
+
+  # Feeds PiAware/FlightAware from ultrafeeder's Beast output - no SDR of its own.
+  piaware:
+    image: ghcr.io/sdr-enthusiasts/docker-piaware
+    container_name: piaware
+    restart: unless-stopped
+    depends_on:
+      - ultrafeeder
+    environment:
+      - TZ=${TZ:-UTC}
+      - RECEIVER_TYPE=relay
+      - BEASTHOST=ultrafeeder
+      - MLAT_RESULTS_BEASTHOST=ultrafeeder
+      - FEEDER_ID=${PIAWARE_FEEDER_ID}
+
+  # Feeds ADSBHub from ultrafeeder's SBS output - no SDR of its own.
+  adsbhub:
+    image: ghcr.io/sdr-enthusiasts/docker-adsbhub
+    container_name: adsbhub
+    restart: unless-stopped
+    depends_on:
+      - ultrafeeder
+    environment:
+      - TZ=${TZ:-UTC}
+      - SBSHOST=ultrafeeder
+      - CLIENTKEY=${ADSBHUB_CLIENTKEY}
+
+  # Feeds FlightRadar24 from ultrafeeder's Beast output - no SDR of its own.
+  fr24feed:
+    image: ghcr.io/sdr-enthusiasts/docker-flightradar24
+    container_name: fr24feed
+    restart: unless-stopped
+    depends_on:
+      - ultrafeeder
+    dns_search: . # works around a docker/fr24feed bug with connection issues
+    environment:
+      - TZ=${TZ:-UTC}
+      - BEASTHOST=ultrafeeder
+      - FR24KEY=${FR24_SHARING_KEY}
+      - MLAT=yes
+
+  # Feeds RadarBox/AirNav Radar from ultrafeeder's Beast output - no SDR of its own.
+  radarbox:
+    image: ghcr.io/sdr-enthusiasts/docker-airnavradar
+    container_name: radarbox
+    restart: unless-stopped
+    depends_on:
+      - ultrafeeder
+    environment:
+      - TZ=${TZ:-UTC}
+      - BEASTHOST=ultrafeeder
+      - MLAT_RESULTS_BEASTHOST=ultrafeeder
+      - MLAT_RESULTS_BEASTPORT=31004
+      - LAT=${STATION_LAT}
+      - LONG=${STATION_LON}
+      - ALT=${STATION_ALT_M}
+      - SHARING_KEY=${RADARBOX_SHARING_KEY}
+
+  # Feeds PlaneFinder from ultrafeeder's Beast output - no SDR of its own.
+  planefinder:
+    image: ghcr.io/sdr-enthusiasts/docker-planefinder
+    container_name: planefinder
+    restart: unless-stopped
+    depends_on:
+      - ultrafeeder
+    environment:
+      - TZ=${TZ:-UTC}
+      - BEASTHOST=ultrafeeder
+      - LAT=${STATION_LAT}
+      - LONG=${STATION_LON}
+      - SHARECODE=${PLANEFINDER_SHARECODE}
+
+  # --- FLARM/OGN (868.8MHz) -----------------------------------------------
+  # Split decoder pattern: ogn-rf owns the SDR and streams spectra to
+  # ogn-decode over TCP 50010, which pushes positions to aprs.glidernet.org.
+  ogn-rf:
+    build:
+      context: ./ogn
+      dockerfile: Dockerfile.ogn-rf
+    container_name: ogn-rf
+    hostname: ogn-rf
+    restart: unless-stopped
+    device_cgroup_rules:
+      - "c 189:* rwm"
+    volumes:
+      - /dev/bus/usb:/dev/bus/usb
+    environment:
+      - STATION_LAT=${STATION_LAT}
+      - STATION_LON=${STATION_LON}
+      - STATION_ALT_M=${STATION_ALT_M}
+      - SDR_FLARM_PPM=${SDR_FLARM_PPM:-0}
+      - OGN_CALLSIGN=${OGN_CALLSIGN}
+    ports:
+      - "${OGN_RF_STATUS_PORT:-8081}:8080"
+
+  ogn-decode:
+    build:
+      context: ./ogn
+      dockerfile: Dockerfile.ogn-decode
+    container_name: ogn-decode
+    restart: unless-stopped
+    depends_on:
+      - ogn-rf
+    environment:
+      - STATION_LAT=${STATION_LAT}
+      - STATION_LON=${STATION_LON}
+      - STATION_ALT_M=${STATION_ALT_M}
+      - SDR_FLARM_PPM=${SDR_FLARM_PPM:-0}
+      - OGN_CALLSIGN=${OGN_CALLSIGN}
+    ports:
+      - "${OGN_DECODE_STATUS_PORT:-8082}:8081"
+
+volumes:
+  ultrafeeder_globe_history:
+  ultrafeeder_graphs:

@@ -1,0 +1,11 @@
+# Local configuration
+.env
+secrets/
+!secrets/.gitkeep
+!secrets/*.example
+
+# OS
+.DS_Store
+
+# Local Claude Code tool settings (may contain local paths/hostnames)
+.claude/

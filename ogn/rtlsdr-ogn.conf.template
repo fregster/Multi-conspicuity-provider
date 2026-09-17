@@ -1,0 +1,31 @@
+# Rendered to rtlsdr-ogn.conf at container start (see entrypoint.sh).
+# Shared by both ogn-rf and ogn-decode - each only reads the sections it needs.
+# Reference: https://github.com/glidernet/ogn-rf (libconfig syntax)
+
+RF:
+{
+  FreqCorr = ${SDR_FLARM_PPM};
+  OGN:
+  {
+    CenterFreq = 868.8;
+    Gain = 49.6;
+  };
+};
+
+Demodulator:
+{
+  PipeName = "ogn-rf:50010";
+};
+
+Position:
+{
+  Latitude  = ${STATION_LAT};
+  Longitude = ${STATION_LON};
+  Altitude  = ${STATION_ALT_M};
+};
+
+APRS:
+{
+  Call = "${OGN_CALLSIGN}";
+  Server = "aprs.glidernet.org:14580";
+};
