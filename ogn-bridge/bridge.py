@@ -9,14 +9,14 @@ SBS line format and the "~" non-ICAO-address prefix convention are taken
 from readsb's own decoder (decodeSbsLine in net_io.c), not guessed:
 MSG,3,1,1,~icaoHex,1,date,time,date,time,callsign,alt_ft,speed_kt,track,lat,lon,vrate_fpm,,,,,,
 """
+import logging
 import os
 import socket
 import time
-import logging
 from datetime import datetime, timezone
 
 from ogn.client import AprsClient
-from ogn.parser import parse, AprsParseError
+from ogn.parser import AprsParseError, parse
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
 log = logging.getLogger("ogn-bridge")
@@ -47,7 +47,6 @@ def sbs_connect():
 
 
 def sbs_send(line):
-    global sbs_sock
     data = (line + "\r\n").encode()
     try:
         sbs_sock.sendall(data)

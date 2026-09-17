@@ -12,7 +12,10 @@ cd "$(dirname "$0")"
 strip_quotes() { local v="$1"; v="${v%\"}"; v="${v#\"}"; v="${v%\'}"; v="${v#\'}"; echo "$v"; }
 PI_HOST=$(strip_quotes "$(grep -m1 '^PI_HOST=' .env | cut -d= -f2-)")
 PI_USER=$(strip_quotes "$(grep -m1 '^PI_USER=' .env | cut -d= -f2-)")
-[ -n "$PI_HOST" ] && [ -n "$PI_USER" ] || { echo "PI_HOST/PI_USER not set in .env" >&2; exit 1; }
+if [ -z "$PI_HOST" ] || [ -z "$PI_USER" ]; then
+  echo "PI_HOST/PI_USER not set in .env" >&2
+  exit 1
+fi
 
 rsync -az --delete --exclude '.git' ./ "${PI_USER}@${PI_HOST}:~/multi-conspicuity-provider/"
 ssh "${PI_USER}@${PI_HOST}" 'cd ~/multi-conspicuity-provider && docker compose up -d --build'
