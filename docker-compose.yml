@@ -1,3 +1,24 @@
+# Shared hardening. Every service drops all capabilities and can't gain new
+# privileges; anything that needs more adds it back explicitly.
+x-hardened: &hardened
+  restart: unless-stopped
+  security_opt:
+    - no-new-privileges:true
+  cap_drop:
+    - ALL
+
+# sdr-enthusiasts images run s6-overlay as root, which chowns its dirs and
+# drops individual services to nobody/www-data - so it needs these back.
+x-s6: &s6
+  <<: *hardened
+  cap_add:
+    - CHOWN
+    - DAC_OVERRIDE
+    - FOWNER
+    - SETUID
+    - SETGID
+    - KILL
+
 services:
   # Reverse proxy for external access to tar1090 over HTTPS. TLS is enabled
   # with no cert resolver configured, so Traefik falls back to its own
@@ -5,11 +26,23 @@ services:
   # domain or ACME setup required. Swap in a real certresolver later if you
   # want a trusted cert instead.
   traefik:
+    <<: *hardened
     image: traefik:v3.7
     container_name: traefik
-    restart: unless-stopped
+    user: "65534:65534"
+    read_only: true
+    depends_on:
+      - socket-proxy
+    # Host search domains have wildcard records - without this, "socket-proxy"
+    # resolves to a public IP whenever the proxy container is down.
+    dns_search: .
+    networks:
+      - proxy
+      - docker-api
     command:
       - --providers.docker=true
+      - --providers.docker.endpoint=tcp://socket-proxy:2375
+      - --providers.docker.network=mcp-proxy
       - --providers.docker.exposedbydefault=false
       - --entrypoints.web.address=:80
       - --entrypoints.websecure.address=:443
@@ -18,20 +51,35 @@ services:
     ports:
       - "${TRAEFIK_HTTP_PORT:-80}:80"
       - "${TRAEFIK_HTTPS_PORT:-443}:443"
+
+  # Read-only, container-listing-only view of the Docker API for Traefik, on
+  # an internal network - so a compromised Traefik doesn't get host root.
+  socket-proxy:
+    <<: *hardened
+    image: tecnativa/docker-socket-proxy:v0.5.0
+    container_name: socket-proxy
+    read_only: true
+    tmpfs:
+      - /run
+      - /tmp
+    networks:
+      - docker-api
+    environment:
+      - CONTAINERS=1
     volumes:
-      # NOTE: `:ro` only stops writes to the socket file itself - it does not
-      # restrict what API calls Traefik can make over it. Full Docker API
-      # access (equivalent to host root) is still possible if this container
-      # is ever compromised. Put a docker-socket-proxy in front of this
-      # during the system-hardening pass to actually restrict it to reads.
       - /var/run/docker.sock:/var/run/docker.sock:ro
 
   # Static holding page at "/" linking to every service's path - otherwise
   # the root of the site 404s, since every other router matches a subpath.
   landing:
-    image: nginx:alpine
+    <<: *hardened
+    image: nginxinc/nginx-unprivileged:alpine
     container_name: landing
-    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp
+    networks:
+      - proxy
     volumes:
       - ./landing/index.html:/usr/share/nginx/html/index.html:ro
     labels:
@@ -42,16 +90,19 @@ services:
       # Explicit low priority so this catch-all never shadows the more
       # specific per-service path routers, regardless of rule-length.
       - "traefik.http.routers.landing.priority=1"
-      - "traefik.http.services.landing.loadbalancer.server.port=80"
+      - "traefik.http.services.landing.loadbalancer.server.port=8080"
 
   # --- ADS-B (1090MHz) ---------------------------------------------------
   # Decodes 1090MHz ADS-B, serves the local tar1090 map, and feeds adsb.lol
   # and adsb.fi directly (no separate container needed for either network).
   ultrafeeder:
+    <<: *s6
     image: ghcr.io/sdr-enthusiasts/docker-adsb-ultrafeeder
     container_name: ultrafeeder
     hostname: ultrafeeder
-    restart: unless-stopped
+    networks:
+      - proxy
+      - adsb
     device_cgroup_rules:
       - "c 189:* rwm"
     ports:
@@ -92,9 +143,12 @@ services:
 
   # Feeds PiAware/FlightAware from ultrafeeder's Beast output - no SDR of its own.
   piaware:
+    <<: *s6
     image: ghcr.io/sdr-enthusiasts/docker-piaware
     container_name: piaware
-    restart: unless-stopped
+    networks:
+      - proxy
+      - adsb
     depends_on:
       - ultrafeeder
     labels:
@@ -114,9 +168,11 @@ services:
 
   # Feeds ADSBHub from ultrafeeder's SBS output - no SDR of its own.
   adsbhub:
+    <<: *s6
     image: ghcr.io/sdr-enthusiasts/docker-adsbhub
     container_name: adsbhub
-    restart: unless-stopped
+    networks:
+      - adsb
     depends_on:
       - ultrafeeder
     environment:
@@ -126,9 +182,12 @@ services:
 
   # Feeds FlightRadar24 from ultrafeeder's Beast output - no SDR of its own.
   fr24feed:
+    <<: *s6
     image: ghcr.io/sdr-enthusiasts/docker-flightradar24
     container_name: fr24feed
-    restart: unless-stopped
+    networks:
+      - proxy
+      - adsb
     depends_on:
       - ultrafeeder
     dns_search: . # works around a docker/fr24feed bug with connection issues
@@ -148,9 +207,11 @@ services:
 
   # Feeds RadarBox/AirNav Radar from ultrafeeder's Beast output - no SDR of its own.
   radarbox:
+    <<: *s6
     image: ghcr.io/sdr-enthusiasts/docker-airnavradar
     container_name: radarbox
-    restart: unless-stopped
+    networks:
+      - adsb
     depends_on:
       - ultrafeeder
     environment:
@@ -165,9 +226,12 @@ services:
 
   # Feeds PlaneFinder from ultrafeeder's Beast output - no SDR of its own.
   planefinder:
+    <<: *s6
     image: ghcr.io/sdr-enthusiasts/docker-planefinder
     container_name: planefinder
-    restart: unless-stopped
+    networks:
+      - proxy
+      - adsb
     depends_on:
       - ultrafeeder
     labels:
@@ -189,9 +253,12 @@ services:
   # ogn-bridge/bridge.py) into ultrafeeder's SBS input, so tar1090 shows
   # FLARM/OGN traffic on the same map as ADS-B.
   ogn-bridge:
+    <<: *hardened
     build: ./ogn-bridge
     container_name: ogn-bridge
-    restart: unless-stopped
+    read_only: true
+    networks:
+      - adsb
     depends_on:
       - ultrafeeder
     environment:
@@ -205,13 +272,19 @@ services:
   # Split decoder pattern: ogn-rf owns the SDR and streams spectra to
   # ogn-decode over TCP 50010, which pushes positions to aprs.glidernet.org.
   ogn-rf:
+    <<: *hardened
     build:
       context: ./ogn
       args:
         BINARY: ogn-rf
     container_name: ogn-rf
     hostname: ogn-rf
-    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /ogn
+    networks:
+      - proxy
+      - ogn
     device_cgroup_rules:
       - "c 189:* rwm"
     volumes:
@@ -235,12 +308,19 @@ services:
       - "${OGN_RF_STATUS_PORT:-8081}:8080"
 
   ogn-decode:
+    <<: *hardened
     build:
       context: ./ogn
       args:
         BINARY: ogn-decode
     container_name: ogn-decode
-    restart: unless-stopped
+    user: "65534:65534"
+    read_only: true
+    tmpfs:
+      - /ogn:uid=65534,gid=65534
+    networks:
+      - proxy
+      - ogn
     depends_on:
       - ogn-rf
     labels:
@@ -263,3 +343,15 @@ services:
 volumes:
   ultrafeeder_globe_history:
   ultrafeeder_graphs:
+
+networks:
+  # Traefik <-> web UIs. Fixed name so Traefik's docker.network flag matches.
+  proxy:
+    name: mcp-proxy
+  # ultrafeeder <-> feeders and the OGN bridge.
+  adsb:
+  # ogn-rf <-> ogn-decode spectra stream.
+  ogn:
+  # Traefik <-> socket-proxy only; no route out.
+  docker-api:
+    internal: true
