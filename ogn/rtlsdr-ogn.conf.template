@@ -5,6 +5,7 @@
 RF:
 {
   FreqCorr = ${SDR_FLARM_PPM};
+  DeviceSerial = "${SDR_FLARM_SERIAL}";
   OGN:
   {
     CenterFreq = 868.8;
