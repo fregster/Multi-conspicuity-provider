@@ -1,8 +1,5 @@
 # Local configuration
 .env
-secrets/
-!secrets/.gitkeep
-!secrets/*.example
 
 # OS
 .DS_Store

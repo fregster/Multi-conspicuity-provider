@@ -1,4 +1,49 @@
 services:
+  # Reverse proxy for external access to tar1090 over HTTPS. TLS is enabled
+  # with no cert resolver configured, so Traefik falls back to its own
+  # auto-generated self-signed certificate - browsers will warn once, no
+  # domain or ACME setup required. Swap in a real certresolver later if you
+  # want a trusted cert instead.
+  traefik:
+    image: traefik:v3.7
+    container_name: traefik
+    restart: unless-stopped
+    command:
+      - --providers.docker=true
+      - --providers.docker.exposedbydefault=false
+      - --entrypoints.web.address=:80
+      - --entrypoints.websecure.address=:443
+      - --entrypoints.web.http.redirections.entrypoint.to=websecure
+      - --entrypoints.web.http.redirections.entrypoint.scheme=https
+    ports:
+      - "${TRAEFIK_HTTP_PORT:-80}:80"
+      - "${TRAEFIK_HTTPS_PORT:-443}:443"
+    volumes:
+      # NOTE: `:ro` only stops writes to the socket file itself - it does not
+      # restrict what API calls Traefik can make over it. Full Docker API
+      # access (equivalent to host root) is still possible if this container
+      # is ever compromised. Put a docker-socket-proxy in front of this
+      # during the system-hardening pass to actually restrict it to reads.
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+
+  # Static holding page at "/" linking to every service's path - otherwise
+  # the root of the site 404s, since every other router matches a subpath.
+  landing:
+    image: nginx:alpine
+    container_name: landing
+    restart: unless-stopped
+    volumes:
+      - ./landing/index.html:/usr/share/nginx/html/index.html:ro
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.landing.rule=PathPrefix(`/`)"
+      - "traefik.http.routers.landing.entrypoints=websecure"
+      - "traefik.http.routers.landing.tls=true"
+      # Explicit low priority so this catch-all never shadows the more
+      # specific per-service path routers, regardless of rule-length.
+      - "traefik.http.routers.landing.priority=1"
+      - "traefik.http.services.landing.loadbalancer.server.port=80"
+
   # --- ADS-B (1090MHz) ---------------------------------------------------
   # Decodes 1090MHz ADS-B, serves the local tar1090 map, and feeds adsb.lol
   # and adsb.fi directly (no separate container needed for either network).
@@ -11,6 +56,14 @@ services:
       - "c 189:* rwm"
     ports:
       - "${TAR1090_PORT:-8080}:80"
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.tar1090.rule=PathPrefix(`/tar1090`)"
+      - "traefik.http.routers.tar1090.entrypoints=websecure"
+      - "traefik.http.routers.tar1090.tls=true"
+      - "traefik.http.routers.tar1090.middlewares=tar1090-strip"
+      - "traefik.http.middlewares.tar1090-strip.stripprefix.prefixes=/tar1090"
+      - "traefik.http.services.tar1090.loadbalancer.server.port=80"
     environment:
       - TZ=${TZ:-UTC}
       - READSB_DEVICE_TYPE=rtlsdr
@@ -44,6 +97,14 @@ services:
     restart: unless-stopped
     depends_on:
       - ultrafeeder
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.piaware.rule=PathPrefix(`/piaware`)"
+      - "traefik.http.routers.piaware.entrypoints=websecure"
+      - "traefik.http.routers.piaware.tls=true"
+      - "traefik.http.routers.piaware.middlewares=piaware-strip"
+      - "traefik.http.middlewares.piaware-strip.stripprefix.prefixes=/piaware"
+      - "traefik.http.services.piaware.loadbalancer.server.port=80"
     environment:
       - TZ=${TZ:-UTC}
       - RECEIVER_TYPE=relay
@@ -71,6 +132,14 @@ services:
     depends_on:
       - ultrafeeder
     dns_search: . # works around a docker/fr24feed bug with connection issues
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.fr24feed.rule=PathPrefix(`/fr24feed`)"
+      - "traefik.http.routers.fr24feed.entrypoints=websecure"
+      - "traefik.http.routers.fr24feed.tls=true"
+      - "traefik.http.routers.fr24feed.middlewares=fr24feed-strip"
+      - "traefik.http.middlewares.fr24feed-strip.stripprefix.prefixes=/fr24feed"
+      - "traefik.http.services.fr24feed.loadbalancer.server.port=8754"
     environment:
       - TZ=${TZ:-UTC}
       - BEASTHOST=ultrafeeder
@@ -101,6 +170,14 @@ services:
     restart: unless-stopped
     depends_on:
       - ultrafeeder
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.planefinder.rule=PathPrefix(`/planefinder`)"
+      - "traefik.http.routers.planefinder.entrypoints=websecure"
+      - "traefik.http.routers.planefinder.tls=true"
+      - "traefik.http.routers.planefinder.middlewares=planefinder-strip"
+      - "traefik.http.middlewares.planefinder-strip.stripprefix.prefixes=/planefinder"
+      - "traefik.http.services.planefinder.loadbalancer.server.port=30053"
     environment:
       - TZ=${TZ:-UTC}
       - BEASTHOST=ultrafeeder
@@ -130,7 +207,8 @@ services:
   ogn-rf:
     build:
       context: ./ogn
-      dockerfile: Dockerfile.ogn-rf
+      args:
+        BINARY: ogn-rf
     container_name: ogn-rf
     hostname: ogn-rf
     restart: unless-stopped
@@ -138,6 +216,14 @@ services:
       - "c 189:* rwm"
     volumes:
       - /dev/bus/usb:/dev/bus/usb
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.ogn-rf.rule=PathPrefix(`/ogn-rf`)"
+      - "traefik.http.routers.ogn-rf.entrypoints=websecure"
+      - "traefik.http.routers.ogn-rf.tls=true"
+      - "traefik.http.routers.ogn-rf.middlewares=ogn-rf-strip"
+      - "traefik.http.middlewares.ogn-rf-strip.stripprefix.prefixes=/ogn-rf"
+      - "traefik.http.services.ogn-rf.loadbalancer.server.port=8080"
     environment:
       - STATION_LAT=${STATION_LAT}
       - STATION_LON=${STATION_LON}
@@ -150,11 +236,20 @@ services:
   ogn-decode:
     build:
       context: ./ogn
-      dockerfile: Dockerfile.ogn-decode
+      args:
+        BINARY: ogn-decode
     container_name: ogn-decode
     restart: unless-stopped
     depends_on:
       - ogn-rf
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.ogn-decode.rule=PathPrefix(`/ogn-decode`)"
+      - "traefik.http.routers.ogn-decode.entrypoints=websecure"
+      - "traefik.http.routers.ogn-decode.tls=true"
+      - "traefik.http.routers.ogn-decode.middlewares=ogn-decode-strip"
+      - "traefik.http.middlewares.ogn-decode-strip.stripprefix.prefixes=/ogn-decode"
+      - "traefik.http.services.ogn-decode.loadbalancer.server.port=8081"
     environment:
       - STATION_LAT=${STATION_LAT}
       - STATION_LON=${STATION_LON}
