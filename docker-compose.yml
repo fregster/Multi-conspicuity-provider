@@ -108,6 +108,22 @@ services:
       - LONG=${STATION_LON}
       - SHARECODE=${PLANEFINDER_SHARECODE}
 
+  # Bridges nearby OGN network traffic (not just our own dongle - see
+  # ogn-bridge/bridge.py) into ultrafeeder's SBS input, so tar1090 shows
+  # FLARM/OGN traffic on the same map as ADS-B.
+  ogn-bridge:
+    build: ./ogn-bridge
+    container_name: ogn-bridge
+    restart: unless-stopped
+    depends_on:
+      - ultrafeeder
+    environment:
+      - STATION_LAT=${STATION_LAT}
+      - STATION_LON=${STATION_LON}
+      - OGN_RANGE_KM=${OGN_RANGE_KM:-150}
+      - SBS_HOST=ultrafeeder
+      - SBS_PORT=32006
+
   # --- FLARM/OGN (868.8MHz) -----------------------------------------------
   # Split decoder pattern: ogn-rf owns the SDR and streams spectra to
   # ogn-decode over TCP 50010, which pushes positions to aprs.glidernet.org.
