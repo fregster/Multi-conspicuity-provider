@@ -64,7 +64,7 @@ Pin a dockerHosting branch or tag with `DOCKERHOSTING_REF`. Extra arguments go s
 
 ## Adding a second SDR
 
-Find each dongle's serial with `rtl_eeprom -d 0` (repeat with `-d 1`, etc.), set it permanently if needed, then set `SDR_1090_SERIAL` / pin `ogn-rf`'s device in `.env` so each service always binds the same physical dongle regardless of USB enumeration order.
+Find each dongle's serial with `rtl_eeprom -d 0` (repeat with `-d 1`, etc.) - stop whichever service currently holds a dongle first (`usb_claim_interface error` means something already has it open). Factory dongles usually all share the same default serial (`00000001`), so set a unique one per dongle with `rtl_eeprom -d <index> -s <serial>` if needed - use a non-numeric serial (e.g. `SDR1090`), since readsb treats a purely-numeric device string as an index rather than a serial. Then set `SDR_1090_SERIAL` and `SDR_FLARM_SERIAL` in `.env` so each service always binds the same physical dongle regardless of USB enumeration order.
 
 ## Adding another aggregator network
 

@@ -26,7 +26,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       $([ "$BINARY" = "ogn-rf" ] && echo librtlsdr0) && \
     rm -rf /var/lib/apt/lists/*
 COPY --from=fetch /out/${BINARY} /usr/local/bin/${BINARY}
-COPY rtlsdr-ogn.conf.template /ogn/rtlsdr-ogn.conf.template
+# Template lives outside /ogn: /ogn is the (tmpfs) working dir where the
+# rendered config and ogn-decode's downloaded geoid file get written.
+COPY rtlsdr-ogn.conf.template /usr/local/share/ogn/rtlsdr-ogn.conf.template
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 WORKDIR /ogn
