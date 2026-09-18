@@ -7,17 +7,14 @@ x-hardened: &hardened
   cap_drop:
     - ALL
 
-# sdr-enthusiasts images run s6-overlay as root, which chowns its dirs and
-# drops individual services to nobody/www-data - so it needs these back.
-x-s6: &s6
-  <<: *hardened
-  cap_add:
-    - CHOWN
-    - DAC_OVERRIDE
-    - FOWNER
-    - SETUID
-    - SETGID
-    - KILL
+# sdr-enthusiasts images start s6-overlay as root and drop to nobody/www-data
+# themselves, so some add caps back. Each list is the measured minimum (a
+# leave-one-out test per cap on the Pi); re-test after image updates:
+#   SETGID       s6-applyuidgid setgroups()
+#   SETUID       s6-applyuidgid / nginx / lighttpd dropping to a service user
+#   CHOWN        startup chowns of log/state dirs
+#   DAC_OVERRIDE piaware's root tee into its nobody-owned log dir
+#   KILL         piaware: s6 signalling non-root children (else stop hangs 10s)
 
 services:
   # Reverse proxy for external access to tar1090 over HTTPS. TLS is enabled
@@ -96,7 +93,11 @@ services:
   # Decodes 1090MHz ADS-B, serves the local tar1090 map, and feeds adsb.lol
   # and adsb.fi directly (no separate container needed for either network).
   ultrafeeder:
-    <<: *s6
+    <<: *hardened
+    cap_add:
+      - CHOWN
+      - SETUID
+      - SETGID
     image: ghcr.io/sdr-enthusiasts/docker-adsb-ultrafeeder
     container_name: ultrafeeder
     hostname: ultrafeeder
@@ -143,7 +144,13 @@ services:
 
   # Feeds PiAware/FlightAware from ultrafeeder's Beast output - no SDR of its own.
   piaware:
-    <<: *s6
+    <<: *hardened
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - SETUID
+      - SETGID
+      - KILL
     image: ghcr.io/sdr-enthusiasts/docker-piaware
     container_name: piaware
     networks:
@@ -168,7 +175,9 @@ services:
 
   # Feeds ADSBHub from ultrafeeder's SBS output - no SDR of its own.
   adsbhub:
-    <<: *s6
+    <<: *hardened
+    cap_add:
+      - SETGID
     image: ghcr.io/sdr-enthusiasts/docker-adsbhub
     container_name: adsbhub
     networks:
@@ -182,7 +191,7 @@ services:
 
   # Feeds FlightRadar24 from ultrafeeder's Beast output - no SDR of its own.
   fr24feed:
-    <<: *s6
+    <<: *hardened
     image: ghcr.io/sdr-enthusiasts/docker-flightradar24
     container_name: fr24feed
     networks:
@@ -207,7 +216,11 @@ services:
 
   # Feeds RadarBox/AirNav Radar from ultrafeeder's Beast output - no SDR of its own.
   radarbox:
-    <<: *s6
+    <<: *hardened
+    cap_add:
+      - CHOWN
+      - SETUID
+      - SETGID
     image: ghcr.io/sdr-enthusiasts/docker-airnavradar
     container_name: radarbox
     networks:
@@ -226,7 +239,11 @@ services:
 
   # Feeds PlaneFinder from ultrafeeder's Beast output - no SDR of its own.
   planefinder:
-    <<: *s6
+    <<: *hardened
+    cap_add:
+      - CHOWN
+      - SETUID
+      - SETGID
     image: ghcr.io/sdr-enthusiasts/docker-planefinder
     container_name: planefinder
     networks:
