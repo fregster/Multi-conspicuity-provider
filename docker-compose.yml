@@ -297,6 +297,11 @@ services:
     container_name: ogn-rf
     hostname: ogn-rf
     read_only: true
+    # Both OGN binaries read console commands from stdin and exit(0) the
+    # moment it hits EOF - which is what they get from Docker's /dev/null.
+    # Without this they start fully (SDR opens, APRS login accepted), then
+    # quit after ~5s and restart forever. Keeps stdin an open, empty pipe.
+    stdin_open: true
     tmpfs:
       - /ogn
     networks:
@@ -333,6 +338,7 @@ services:
     container_name: ogn-decode
     user: "65534:65534"
     read_only: true
+    stdin_open: true # see ogn-rf
     tmpfs:
       - /ogn:uid=65534,gid=65534
     networks:
