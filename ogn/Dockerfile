@@ -15,6 +15,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends wget ca-certifi
     rm -rf /var/lib/apt/lists/*
 RUN wget --no-check-certificate -qO- http://download.glidernet.org/arm64/rtlsdr-ogn-bin-arm64-latest.tgz | tar xz -C /tmp && \
     mkdir -p /out && cp /tmp/rtlsdr-ogn/${BINARY} /out/${BINARY}
+# EGM96 geoid table: ogn-decode downloads this on every start (it lives on a
+# tmpfs) and without it every altitude is ~50m off, so bake it in for offline
+# sites - the file is global and never changes.
+RUN wget --no-check-certificate -qO /out/WW15MGH.DAC http://download.glidernet.org/common/WW15MGH.DAC && \
+    [ "$(stat -c %s /out/WW15MGH.DAC)" -gt 1000000 ]
 
 FROM debian:trixie-slim
 ARG BINARY
@@ -29,6 +34,7 @@ COPY --from=fetch /out/${BINARY} /usr/local/bin/${BINARY}
 # Template lives outside /ogn: /ogn is the (tmpfs) working dir where the
 # rendered config and ogn-decode's downloaded geoid file get written.
 COPY rtlsdr-ogn.conf.template /usr/local/share/ogn/rtlsdr-ogn.conf.template
+COPY --from=fetch /out/WW15MGH.DAC /usr/local/share/ogn/WW15MGH.DAC
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 WORKDIR /ogn

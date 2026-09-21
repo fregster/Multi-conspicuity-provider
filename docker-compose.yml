@@ -288,9 +288,11 @@ services:
       - LONG=${STATION_LON}
       - SHARECODE=${PLANEFINDER_SHARECODE}
 
-  # Bridges nearby OGN network traffic (not just our own dongle - see
-  # ogn-bridge/bridge.py) into ultrafeeder's SBS input, so tar1090 shows
-  # FLARM/OGN traffic on the same map as ADS-B.
+  # Puts FLARM/OGN traffic on tar1090 via ultrafeeder's SBS input: our own SDR
+  # (ogn-decode logs in here as its "APRS server", so it works with no internet;
+  # positions are relayed on to aprs.glidernet.org when online) plus the wider
+  # OGN network when reachable, de-duplicated in favour of the local SDR. See
+  # ogn-bridge/bridge.py.
   ogn-bridge:
     <<: *hardened
     build: ./ogn-bridge
@@ -298,6 +300,7 @@ services:
     read_only: true
     networks:
       - adsb
+      - ogn
     depends_on:
       - ultrafeeder
     environment:
@@ -309,7 +312,8 @@ services:
 
   # --- FLARM/OGN (868.8MHz) -----------------------------------------------
   # Split decoder pattern: ogn-rf owns the SDR and streams spectra to
-  # ogn-decode over TCP 50010, which pushes positions to aprs.glidernet.org.
+  # ogn-decode over TCP 50010, which pushes positions to ogn-bridge (which
+  # shows them on tar1090 and relays them on to aprs.glidernet.org).
   ogn-rf:
     <<: *hardened
     build:
@@ -368,6 +372,7 @@ services:
       - ogn
     depends_on:
       - ogn-rf
+      - ogn-bridge
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.ogn-decode.rule=PathPrefix(`/ogn-decode`)"
@@ -395,7 +400,7 @@ networks:
     name: mcp-proxy
   # ultrafeeder <-> feeders and the OGN bridge.
   adsb:
-  # ogn-rf <-> ogn-decode spectra stream.
+  # ogn-rf <-> ogn-decode spectra stream, and ogn-decode -> ogn-bridge positions.
   ogn:
   # Traefik <-> socket-proxy only; no route out.
   docker-api:
