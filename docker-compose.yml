@@ -237,6 +237,28 @@ services:
       - ALT=${STATION_ALT_M}
       - SHARING_KEY=${RADARBOX_SHARING_KEY}
 
+  # Feeds OpenSky Network from ultrafeeder's Beast output - no SDR of its own.
+  opensky:
+    <<: *hardened
+    cap_add:
+      - CHOWN
+      - SETUID
+      - SETGID
+    image: ghcr.io/sdr-enthusiasts/docker-opensky-network
+    container_name: opensky
+    networks:
+      - adsb
+    depends_on:
+      - ultrafeeder
+    environment:
+      - TZ=${TZ:-UTC}
+      - BEASTHOST=ultrafeeder
+      - LAT=${STATION_LAT}
+      - LONG=${STATION_LON}
+      - ALT=${STATION_ALT_M}
+      - OPENSKY_USERNAME=${OPENSKY_USERNAME}
+      - OPENSKY_SERIAL=${OPENSKY_SERIAL}
+
   # Feeds PlaneFinder from ultrafeeder's Beast output - no SDR of its own.
   planefinder:
     <<: *hardened
