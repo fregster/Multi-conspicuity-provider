@@ -24,8 +24,11 @@ jobs:
       - run: docker build ./ogn --build-arg BINARY=ogn-rf -t ogn-rf-ci
       - run: docker build ./ogn --build-arg BINARY=ogn-decode -t ogn-decode-ci
       - run: docker build ./ogn-bridge -t ogn-bridge-ci
+      - run: docker build ./status -t status-ci
       - name: Bridge tests
         run: docker run --rm -v "$PWD/ogn-bridge:/t:ro" -w /t --entrypoint python3 ogn-bridge-ci test_bridge.py
+      - name: Status tests
+        run: docker run --rm -v "$PWD/status:/t:ro" -w /t --entrypoint python3 status-ci test_status.py
 
   shellcheck:
     runs-on: ubuntu-latest
@@ -38,8 +41,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: pip install ruff==0.16.8
-      - run: ruff check ogn-bridge/
-      - run: ruff format --check ogn-bridge/
+      - run: ruff check ogn-bridge/ status/
+      - run: ruff format --check ogn-bridge/ status/
 
   hadolint:
     runs-on: ubuntu-latest
@@ -52,6 +55,10 @@ jobs:
       - uses: hadolint/hadolint-action@v3.1.0
         with:
           dockerfile: ogn-bridge/Dockerfile
+          config: .hadolint.yaml
+      - uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: status/Dockerfile
           config: .hadolint.yaml
 
   actionlint:

@@ -6,3 +6,6 @@
 
 # Local Claude Code tool settings (may contain local paths/hostnames)
 .claude/
+
+# Python
+__pycache__/

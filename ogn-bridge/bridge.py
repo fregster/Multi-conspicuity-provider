@@ -18,6 +18,7 @@ from readsb's own decoder (decodeSbsLine in net_io.c), not guessed:
 MSG,3,1,1,~icaoHex,1,date,time,date,time,callsign,alt_ft,speed_kt,track,lat,lon,vrate_fpm,,,,,,
 """
 
+import json
 import logging
 import os
 import queue
@@ -25,6 +26,7 @@ import socket
 import threading
 import time
 from datetime import datetime, timezone
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from ogn.client import AprsClient
 from ogn.parser import parse
@@ -38,6 +40,7 @@ RANGE_KM = int(os.environ.get("OGN_RANGE_KM", "150"))
 SBS_HOST = os.environ.get("SBS_HOST", "ultrafeeder")
 SBS_PORT = int(os.environ.get("SBS_PORT", "32006"))
 LISTEN_PORT = int(os.environ.get("APRS_LISTEN_PORT", "14580"))
+STATUS_PORT = int(os.environ.get("STATUS_PORT", "8080"))
 UPSTREAM = ("aprs.glidernet.org", 14580)
 LOCAL_HOLD_S = 30
 
@@ -48,6 +51,27 @@ FPM_PER_MS = 1 / 0.00508
 sbs_sock = None
 sbs_lock = threading.Lock()
 sbs_retry_at = 0.0
+
+# Health for the status page: open links, and when each flow last moved data.
+connected = {"decoder": 0, "uplink": False, "sbs": False}
+last = {}  # event -> monotonic time
+
+
+def seen(event):
+    last[event] = time.monotonic()
+
+
+class StatusHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        now = time.monotonic()
+        body = json.dumps({"connected": connected, "age_s": {k: round(now - v) for k, v in last.items()}}).encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, *args):
+        pass
 
 
 def sbs_send(line):
@@ -60,17 +84,21 @@ def sbs_send(line):
                 return
             try:
                 sbs_sock = socket.create_connection((SBS_HOST, SBS_PORT), timeout=3)
+                connected["sbs"] = True
                 log.info(f"Connected to SBS input at {SBS_HOST}:{SBS_PORT}")
             except OSError as e:
                 sbs_retry_at = time.monotonic() + 5
+                connected["sbs"] = False
                 log.warning(f"SBS connect failed ({e}), retrying in 5s")
                 return
         try:
             sbs_sock.sendall((line + "\r\n").encode())
+            return True
         except OSError:
             log.warning("SBS connection lost, reconnecting")
             sbs_sock.close()
             sbs_sock = None
+            connected["sbs"] = False
 
 
 def sanitize_callsign(name):
@@ -125,7 +153,8 @@ def process_beacon(raw_message, local):
         last_local[addr] = now
     elif now - last_local.get(addr, -LOCAL_HOLD_S) < LOCAL_HOLD_S:
         return
-    sbs_send(line)
+    if sbs_send(line):
+        seen("local_to_tar1090" if local else "network_to_tar1090")
 
 
 def relay_upstream(q, login, stop):
@@ -138,6 +167,7 @@ def relay_upstream(q, login, stop):
             up.sendall((login + "\r\n").encode())
             up.setblocking(False)
             log.info("Connected to OGN network, relaying local feed")
+            connected["uplink"] = True
             while not stop.is_set():
                 try:
                     line = q.get(timeout=5)
@@ -145,14 +175,17 @@ def relay_upstream(q, login, stop):
                     line = None
                 if line:
                     up.sendall((line + "\r\n").encode())
+                    seen("uplink_tx")
                 try:  # drain server comments so its send buffer never stalls; b"" = closed
                     if not up.recv(4096):
                         raise OSError("closed by server")
                 except BlockingIOError:
                     pass
             up.close()
+            connected["uplink"] = False
         except OSError as e:
             log.warning(f"OGN network relay down ({e}), retrying in 10s")
+            connected["uplink"] = False
             while not q.empty():  # drop the backlog
                 q.get_nowait()
             stop.wait(10)
@@ -182,6 +215,7 @@ def serve_decoder(conn):
             if not data:
                 return
             buf += data
+            seen("decoder_rx")
             *lines, buf = buf.split(b"\n")
             for raw in lines:
                 line = raw.decode(errors="replace").strip()
@@ -193,6 +227,7 @@ def serve_decoder(conn):
                     call = line.split()[1] if len(line.split()) > 1 else "OGN"
                     comment(f"logresp {call} verified, server OGNBRIDGE")
                     log.info(f"ogn-decode logged in as {call}")
+                    connected["decoder"] += 1
                     continue
                 process_beacon(line, local=True)
                 try:
@@ -202,8 +237,15 @@ def serve_decoder(conn):
     except OSError:
         pass
     finally:
+        if q is not None:
+            connected["decoder"] -= 1
         stop.set()
         conn.close()
+
+
+def on_network_line(raw_message):
+    seen("network_rx")  # includes the server's ~20s keepalive comments, so it's a liveness signal
+    process_beacon(raw_message, local=False)
 
 
 def run_network_feed():
@@ -213,7 +255,7 @@ def run_network_feed():
             client = AprsClient(aprs_user="OGNBRIDGE", aprs_filter=aprs_filter)
             client.connect()
             log.info(f"Connected to OGN APRS-IS with filter: {aprs_filter}")
-            client.run(callback=lambda m: process_beacon(m, local=False), autoreconnect=True)
+            client.run(callback=on_network_line, autoreconnect=True)
         except Exception as e:  # noqa: BLE001 - no internet is the normal case at an offline airfield
             log.warning(f"OGN network unavailable ({e}), retrying in 30s")
             time.sleep(30)
@@ -221,6 +263,7 @@ def run_network_feed():
 
 def main():
     threading.Thread(target=run_network_feed, daemon=True).start()
+    threading.Thread(target=ThreadingHTTPServer(("", STATUS_PORT), StatusHandler).serve_forever, daemon=True).start()
     srv = socket.create_server(("", LISTEN_PORT))
     log.info(f"Listening for ogn-decode on :{LISTEN_PORT}")
     while True:

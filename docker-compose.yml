@@ -80,7 +80,9 @@ services:
     networks:
       - proxy
     volumes:
-      - ./landing/index.html:/usr/share/nginx/html/index.html:ro
+      # Whole directory, not the file: deploy.sh's rsync replaces index.html,
+      # and a single-file bind mount would keep serving the old inode.
+      - ./landing:/usr/share/nginx/html:ro
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.landing.rule=PathPrefix(`/`)"
@@ -131,7 +133,7 @@ services:
       - READSB_STATS_RANGE=true
       - UUID=${ADSBLOL_UUID}
       - MLAT_USER=${STATION_NAME}
-      - ULTRAFEEDER_CONFIG=adsb,in.adsb.lol,30004,beast_reduce_plus_out,uuid=${ADSBLOL_UUID};mlat,in.adsb.lol,31090,uuid=${ADSBLOL_UUID};adsb,feed.adsb.fi,30004,beast_reduce_plus_out;mlat,feed.adsb.fi,31090;adsb,feed.airplanes.live,30004,beast_reduce_plus_out;mlat,feed.airplanes.live,31090;adsb,feed.planespotters.net,30004,beast_reduce_plus_out;mlat,mlat.planespotters.net,31090;adsb,feed1.adsbexchange.com,30004,beast_reduce_plus_out;mlat,feed.adsbexchange.com,31090
+      - &ultrafeeder-config ULTRAFEEDER_CONFIG=adsb,in.adsb.lol,30004,beast_reduce_plus_out,uuid=${ADSBLOL_UUID};mlat,in.adsb.lol,31090,uuid=${ADSBLOL_UUID};adsb,feed.adsb.fi,30004,beast_reduce_plus_out;mlat,feed.adsb.fi,31090;adsb,feed.airplanes.live,30004,beast_reduce_plus_out;mlat,feed.airplanes.live,31090;adsb,feed.planespotters.net,30004,beast_reduce_plus_out;mlat,mlat.planespotters.net,31090;adsb,feed1.adsbexchange.com,30004,beast_reduce_plus_out;mlat,feed.adsbexchange.com,31090
       - TAR1090_PAGETITLE=${STATION_NAME}
       - TAR1090_MESSAGERATEINTITLE=true
       - TAR1090_PLANECOUNTINTITLE=true
@@ -390,6 +392,29 @@ services:
       - OGN_CALLSIGN=${OGN_CALLSIGN}
     ports:
       - "${OGN_DECODE_STATUS_PORT:-8082}:8081"
+
+  # /status.json for the landing page: container health (via the read-only
+  # socket-proxy), per-aggregator ADS-B feed status from ultrafeeder, and OGN
+  # link health from ogn-bridge. See status/status.py.
+  status:
+    <<: *hardened
+    build: ./status
+    container_name: status
+    read_only: true
+    depends_on:
+      - socket-proxy
+    networks:
+      - proxy
+      - adsb
+      - docker-api
+    environment:
+      - *ultrafeeder-config
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.status.rule=Path(`/status.json`)"
+      - "traefik.http.routers.status.entrypoints=websecure"
+      - "traefik.http.routers.status.tls=true"
+      - "traefik.http.services.status.loadbalancer.server.port=8080"
 
 volumes:
   ultrafeeder_globe_history:

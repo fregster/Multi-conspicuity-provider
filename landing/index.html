@@ -25,6 +25,14 @@
   }
   a:hover { opacity: 0.7; }
   small { opacity: 0.7; }
+  h2 { font-size: 1.1rem; margin-top: 2rem; }
+  table { width: 100%; border-collapse: collapse; }
+  td { padding: 0.25rem 0.5rem 0.25rem 0; vertical-align: top; }
+  td:last-child { opacity: 0.7; font-size: 0.9em; }
+  .ok::before, .warn::before, .bad::before { content: "\25CF\00A0"; }
+  .ok::before { color: #2a2; }
+  .warn::before { color: #d90; }
+  .bad::before { color: #d22; }
 </style>
 </head>
 <body>
@@ -38,5 +46,81 @@
   <li><a href="/ogn-decode/">OGN decode status</a></li>
 </ul>
 <p><small>ADSBHub and RadarBox/AirNav Radar have no web UI, so they aren't listed here.</small></p>
+
+<h2>ADS-B feeds</h2>
+<table id="adsb"></table>
+<h2>OGN / FLARM feeds</h2>
+<table id="ogn"></table>
+<h2>Containers</h2>
+<table id="containers"></table>
+<p><small id="updated">Loading status&hellip;</small></p>
+
+<script>
+// Renders /status.json (status/status.py). Dedicated-client feeders' Docker
+// healthchecks check their own uplink, so container health = feed health.
+const FEEDERS = { piaware: "FlightAware", fr24feed: "FlightRadar24", radarbox: "RadarBox", opensky: "OpenSky",
+                  planefinder: "PlaneFinder", adsbhub: "ADSBHub" };
+
+const ago = s => s == null ? "never" : s < 120 ? `${s}s ago` : s < 7200 ? `${Math.round(s / 60)}m ago` : `${Math.round(s / 3600)}h ago`;
+const dur = s => s < 3600 ? `${Math.round(s / 60)}m` : s < 172800 ? `${Math.round(s / 3600)}h` : `${Math.round(s / 86400)}d`;
+// Running with no healthcheck (ogn-*, traefik) counts as ok; "(health: starting)" as warn.
+const health = st => /unhealthy|^Exited|^Dead|Restarting|^Created/i.test(st) ? "bad" : /starting/.test(st) ? "warn" : "ok";
+
+function fill(id, rows) {
+  document.getElementById(id).replaceChildren(...rows.map(([level, name, detail]) => {
+    const tr = document.createElement("tr");
+    tr.append(document.createElement("td"), document.createElement("td"));
+    tr.cells[0].className = level;
+    tr.cells[0].textContent = name;
+    tr.cells[1].textContent = detail;
+    return tr;
+  }));
+}
+
+async function refresh() {
+  let s;
+  try {
+    s = await (await fetch("/status.json", { cache: "no-store" })).json();
+  } catch (e) {
+    document.getElementById("updated").textContent = `Status unavailable (${e.message}) - retrying`;
+    return;
+  }
+  const na = what => [["bad", what, "status source unreachable"]];
+  const byName = Object.fromEntries((s.containers || []).map(c => [c.name, c]));
+
+  // ultrafeeder's built-in aggregators, grouped by domain (feed1.adsbexchange.com + feed.adsbexchange.com)
+  const site = h => h.split(".").slice(-2).join(".");
+  const aggs = {};
+  for (const b of s.beast || []) (aggs[site(b.host)] ??= []).push(b.up_s > 0 ? ["ok", `Beast up ${dur(b.up_s)}`] : ["bad", "Beast down"]);
+  for (const m of s.mlat || []) (aggs[site(m.host)] ??= []).push(
+    m.age_s == null ? ["warn", "MLAT no sync stats"] : m.age_s > 300 ? ["bad", `MLAT stats stale ${ago(m.age_s)}`] : ["ok", `MLAT ${m.peers} peers`]);
+  const worst = parts => ["bad", "warn", "ok"].find(l => parts.some(([p]) => p === l));
+  fill("adsb", [
+    ...(s.beast ? Object.entries(aggs).map(([a, parts]) => [worst(parts), a, parts.map(p => p[1]).join(", ")]) : na("ultrafeeder aggregators")),
+    ...Object.entries(FEEDERS).map(([c, label]) =>
+      byName[c] ? [health(byName[c].status), label, byName[c].status] : ["bad", label, s.containers ? "container missing" : "unknown"]),
+  ]);
+
+  const o = s.ogn;
+  fill("ogn", o ? [
+    [o.connected.decoder && o.age_s.decoder_rx < 600 ? "ok" : "bad", "Local receiver (ogn-rf \u2192 ogn-decode)",
+      o.connected.decoder ? `data ${ago(o.age_s.decoder_rx)}` : "ogn-decode not connected to bridge"],
+    // The SBS link to tar1090 opens on the first aircraft, so "never connected" is just a quiet sky.
+    o.connected.sbs ? ["ok", "Local OGN \u2192 tar1090", `last aircraft ${ago(o.age_s.local_to_tar1090)}`]
+      : o.age_s.local_to_tar1090 == null && o.age_s.network_to_tar1090 == null ? ["warn", "Local OGN \u2192 tar1090", "no aircraft yet"]
+      : ["bad", "Local OGN \u2192 tar1090", "tar1090 SBS input unreachable"],
+    [o.age_s.network_rx < 120 ? "ok" : "warn", "OGN network \u2192 tar1090",
+      o.age_s.network_rx < 120 ? `last aircraft ${ago(o.age_s.network_to_tar1090)}` : `no APRS-IS data ${ago(o.age_s.network_rx)} (offline?)`],
+    [o.connected.uplink ? "ok" : "warn", "Upload to aprs.glidernet.org",
+      o.connected.uplink ? `last sent ${ago(o.age_s.uplink_tx)}` : "not connected (offline?)"],
+  ] : na("ogn-bridge"));
+
+  fill("containers", s.containers ? s.containers.sort((a, b) => a.name.localeCompare(b.name))
+    .map(c => [health(c.status), c.name, c.status]) : na("Docker"));
+  document.getElementById("updated").textContent = `Updated ${new Date().toLocaleTimeString()}`;
+}
+refresh();
+setInterval(refresh, 15000);
+</script>
 </body>
 </html>
