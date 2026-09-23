@@ -6,6 +6,11 @@ x-hardened: &hardened
     - no-new-privileges:true
   cap_drop:
     - ALL
+  # Host search domains have wildcard records, so any failed lookup (e.g. a
+  # stopped container's name, or glibc's AAAA-first query for a compose service
+  # name) falls through to them and resolves to a public IP. Seen breaking
+  # traefik->socket-proxy, fr24feed, and adsbhub's healthcheck/uplink.
+  dns_search: .
 
 # sdr-enthusiasts images start s6-overlay as root and drop to nobody/www-data
 # themselves, so some add caps back. Each list is the measured minimum (a
@@ -30,9 +35,6 @@ services:
     read_only: true
     depends_on:
       - socket-proxy
-    # Host search domains have wildcard records - without this, "socket-proxy"
-    # resolves to a public IP whenever the proxy container is down.
-    dns_search: .
     networks:
       - proxy
       - docker-api
@@ -199,7 +201,6 @@ services:
       - adsb
     depends_on:
       - ultrafeeder
-    dns_search: . # works around a docker/fr24feed bug with connection issues
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.fr24feed.rule=PathPrefix(`/fr24feed`)"
