@@ -115,7 +115,7 @@ last_local = {}  # address -> monotonic time last heard by our SDR (one float pe
 def process_beacon(raw_message, local):
     try:
         beacon = parse(raw_message)
-    except Exception:  # AprsParseError, or anything odd in a line from the wire
+    except Exception:  # noqa: BLE001 - AprsParseError, or anything odd in a line from the wire
         return
     line = to_sbs(beacon)
     if not line:
@@ -176,7 +176,7 @@ def serve_decoder(conn):
         while True:
             try:
                 data = conn.recv(4096)
-            except socket.timeout:
+            except TimeoutError:
                 comment(banner())
                 continue
             if not data:
@@ -214,7 +214,7 @@ def run_network_feed():
             client.connect()
             log.info(f"Connected to OGN APRS-IS with filter: {aprs_filter}")
             client.run(callback=lambda m: process_beacon(m, local=False), autoreconnect=True)
-        except Exception as e:  # no internet is the normal case at an offline airfield
+        except Exception as e:  # noqa: BLE001 - no internet is the normal case at an offline airfield
             log.warning(f"OGN network unavailable ({e}), retrying in 30s")
             time.sleep(30)
 
