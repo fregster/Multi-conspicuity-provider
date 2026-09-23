@@ -4,6 +4,9 @@ on:
   push:
   pull_request:
 
+permissions:
+  contents: read
+
 jobs:
   compose-config:
     runs-on: ubuntu-latest
@@ -21,6 +24,8 @@ jobs:
       - run: docker build ./ogn --build-arg BINARY=ogn-rf -t ogn-rf-ci
       - run: docker build ./ogn --build-arg BINARY=ogn-decode -t ogn-decode-ci
       - run: docker build ./ogn-bridge -t ogn-bridge-ci
+      - name: Bridge tests
+        run: docker run --rm -v "$PWD/ogn-bridge:/t:ro" -w /t --entrypoint python3 ogn-bridge-ci test_bridge.py
 
   shellcheck:
     runs-on: ubuntu-latest
@@ -33,7 +38,27 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: pip install ruff==0.16.8
-      - run: ruff check ogn-bridge/bridge.py
+      - run: ruff check ogn-bridge/
+      - run: ruff format --check ogn-bridge/
+
+  hadolint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: ogn/Dockerfile
+          config: .hadolint.yaml
+      - uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: ogn-bridge/Dockerfile
+          config: .hadolint.yaml
+
+  actionlint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: raven-actions/actionlint@v2
 
   gitleaks:
     runs-on: ubuntu-latest

@@ -100,7 +100,7 @@ services:
       - CHOWN
       - SETUID
       - SETGID
-    image: ghcr.io/sdr-enthusiasts/docker-adsb-ultrafeeder
+    image: ghcr.io/sdr-enthusiasts/docker-adsb-ultrafeeder:${ULTRAFEEDER_TAG:-latest}
     container_name: ultrafeeder
     hostname: ultrafeeder
     networks:
@@ -153,7 +153,7 @@ services:
       - SETUID
       - SETGID
       - KILL
-    image: ghcr.io/sdr-enthusiasts/docker-piaware
+    image: ghcr.io/sdr-enthusiasts/docker-piaware:${PIAWARE_TAG:-latest}
     container_name: piaware
     networks:
       - proxy
@@ -180,7 +180,7 @@ services:
     <<: *hardened
     cap_add:
       - SETGID
-    image: ghcr.io/sdr-enthusiasts/docker-adsbhub
+    image: ghcr.io/sdr-enthusiasts/docker-adsbhub:${ADSBHUB_TAG:-latest}
     container_name: adsbhub
     networks:
       - adsb
@@ -194,7 +194,7 @@ services:
   # Feeds FlightRadar24 from ultrafeeder's Beast output - no SDR of its own.
   fr24feed:
     <<: *hardened
-    image: ghcr.io/sdr-enthusiasts/docker-flightradar24
+    image: ghcr.io/sdr-enthusiasts/docker-flightradar24:${FR24_TAG:-latest}
     container_name: fr24feed
     networks:
       - proxy
@@ -222,7 +222,7 @@ services:
       - CHOWN
       - SETUID
       - SETGID
-    image: ghcr.io/sdr-enthusiasts/docker-airnavradar
+    image: ghcr.io/sdr-enthusiasts/docker-airnavradar:${AIRNAVRADAR_TAG:-latest}
     container_name: radarbox
     networks:
       - adsb
@@ -245,7 +245,7 @@ services:
       - CHOWN
       - SETUID
       - SETGID
-    image: ghcr.io/sdr-enthusiasts/docker-opensky-network
+    image: ghcr.io/sdr-enthusiasts/docker-opensky-network:${OPENSKY_TAG:-latest}
     container_name: opensky
     networks:
       - adsb
@@ -267,7 +267,7 @@ services:
       - CHOWN
       - SETUID
       - SETGID
-    image: ghcr.io/sdr-enthusiasts/docker-planefinder
+    image: ghcr.io/sdr-enthusiasts/docker-planefinder:${PLANEFINDER_TAG:-latest}
     container_name: planefinder
     networks:
       - proxy

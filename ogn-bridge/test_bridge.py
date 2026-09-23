@@ -1,4 +1,5 @@
 """Run: STATION_LAT=51 STATION_LON=0 python3 test_bridge.py  (needs ogn-client)"""
+
 import os
 
 os.environ.setdefault("STATION_LAT", "51")

@@ -11,6 +11,7 @@ ARG BINARY=ogn-rf
 
 FROM debian:trixie-slim AS fetch
 ARG BINARY
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 RUN apt-get update && apt-get install -y --no-install-recommends wget ca-certificates && \
     rm -rf /var/lib/apt/lists/*
 RUN wget --no-check-certificate -qO- http://download.glidernet.org/arm64/rtlsdr-ogn-bin-arm64-latest.tgz | tar xz -C /tmp && \
@@ -25,7 +26,9 @@ FROM debian:trixie-slim
 ARG BINARY
 ENV BINARY=${BINARY}
 # librtlsdr0 is only needed by ogn-rf (it owns the SDR) - ogn-decode just
-# reads a TCP stream from ogn-rf and has no hardware access.
+# reads a TCP stream from ogn-rf and has no hardware access. Unquoted on
+# purpose so it expands to nothing for ogn-decode.
+# hadolint ignore=SC2046
 RUN apt-get update && apt-get install -y --no-install-recommends \
       libpng16-16 gettext-base \
       $([ "$BINARY" = "ogn-rf" ] && echo librtlsdr0) && \

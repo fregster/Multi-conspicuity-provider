@@ -17,6 +17,7 @@ SBS line format and the "~" non-ICAO-address prefix convention are taken
 from readsb's own decoder (decodeSbsLine in net_io.c), not guessed:
 MSG,3,1,1,~icaoHex,1,date,time,date,time,callsign,alt_ft,speed_kt,track,lat,lon,vrate_fpm,,,,,,
 """
+
 import logging
 import os
 import queue
@@ -96,6 +97,7 @@ def to_sbs(beacon):
     track = f"{beacon['track']:.0f}" if "track" in beacon else ""
     vrate_fpm = f"{beacon['climb_rate'] * FPM_PER_MS:.0f}" if "climb_rate" in beacon else ""
 
+    # fmt: off
     fields = [
         "MSG", "3", "1", "1", icao, "1",
         date_str, time_str, date_str, time_str,
@@ -103,6 +105,7 @@ def to_sbs(beacon):
         f"{beacon['latitude']:.5f}", f"{beacon['longitude']:.5f}",
         vrate_fpm, "", "", "", "", "",
     ]
+    # fmt: on
     return ",".join(fields)
 
 
@@ -112,7 +115,7 @@ last_local = {}  # address -> monotonic time last heard by our SDR (one float pe
 def process_beacon(raw_message, local):
     try:
         beacon = parse(raw_message)
-    except Exception:  # AprsParseError, or anything odd in a line from the wire
+    except Exception:  # noqa: BLE001 - AprsParseError, or anything odd in a line from the wire
         return
     line = to_sbs(beacon)
     if not line:
@@ -158,6 +161,7 @@ def relay_upstream(q, login, stop):
 def serve_decoder(conn):
     """Minimal APRS-IS server side for ogn-decode: banner, login ack, keepalive
     comments (it treats a silent server as dead), then one position per line."""
+
     def comment(text):
         conn.sendall(f"# {text}\r\n".encode())
 
@@ -172,7 +176,7 @@ def serve_decoder(conn):
         while True:
             try:
                 data = conn.recv(4096)
-            except socket.timeout:
+            except TimeoutError:
                 comment(banner())
                 continue
             if not data:
@@ -210,7 +214,7 @@ def run_network_feed():
             client.connect()
             log.info(f"Connected to OGN APRS-IS with filter: {aprs_filter}")
             client.run(callback=lambda m: process_beacon(m, local=False), autoreconnect=True)
-        except Exception as e:  # no internet is the normal case at an offline airfield
+        except Exception as e:  # noqa: BLE001 - no internet is the normal case at an offline airfield
             log.warning(f"OGN network unavailable ({e}), retrying in 30s")
             time.sleep(30)
 
