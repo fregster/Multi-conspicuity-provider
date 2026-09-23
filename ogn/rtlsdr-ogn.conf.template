@@ -28,5 +28,8 @@ Position:
 APRS:
 {
   Call = "${OGN_CALLSIGN}";
-  Server = "aprs.glidernet.org:14580";
+  # Not the OGN network directly: ogn-bridge is a local APRS endpoint that feeds
+  # our own positions to tar1090 (works offline) and relays them to
+  # aprs.glidernet.org whenever the internet is reachable.
+  Server = "ogn-bridge:14580";
 };

@@ -6,6 +6,11 @@ x-hardened: &hardened
     - no-new-privileges:true
   cap_drop:
     - ALL
+  # Host search domains have wildcard records, so any failed lookup (e.g. a
+  # stopped container's name, or glibc's AAAA-first query for a compose service
+  # name) falls through to them and resolves to a public IP. Seen breaking
+  # traefik->socket-proxy, fr24feed, and adsbhub's healthcheck/uplink.
+  dns_search: .
 
 # sdr-enthusiasts images start s6-overlay as root and drop to nobody/www-data
 # themselves, so some add caps back. Each list is the measured minimum (a
@@ -30,9 +35,6 @@ services:
     read_only: true
     depends_on:
       - socket-proxy
-    # Host search domains have wildcard records - without this, "socket-proxy"
-    # resolves to a public IP whenever the proxy container is down.
-    dns_search: .
     networks:
       - proxy
       - docker-api
@@ -199,7 +201,6 @@ services:
       - adsb
     depends_on:
       - ultrafeeder
-    dns_search: . # works around a docker/fr24feed bug with connection issues
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.fr24feed.rule=PathPrefix(`/fr24feed`)"
@@ -237,6 +238,28 @@ services:
       - ALT=${STATION_ALT_M}
       - SHARING_KEY=${RADARBOX_SHARING_KEY}
 
+  # Feeds OpenSky Network from ultrafeeder's Beast output - no SDR of its own.
+  opensky:
+    <<: *hardened
+    cap_add:
+      - CHOWN
+      - SETUID
+      - SETGID
+    image: ghcr.io/sdr-enthusiasts/docker-opensky-network
+    container_name: opensky
+    networks:
+      - adsb
+    depends_on:
+      - ultrafeeder
+    environment:
+      - TZ=${TZ:-UTC}
+      - BEASTHOST=ultrafeeder
+      - LAT=${STATION_LAT}
+      - LONG=${STATION_LON}
+      - ALT=${STATION_ALT_M}
+      - OPENSKY_USERNAME=${OPENSKY_USERNAME}
+      - OPENSKY_SERIAL=${OPENSKY_SERIAL}
+
   # Feeds PlaneFinder from ultrafeeder's Beast output - no SDR of its own.
   planefinder:
     <<: *hardened
@@ -266,9 +289,11 @@ services:
       - LONG=${STATION_LON}
       - SHARECODE=${PLANEFINDER_SHARECODE}
 
-  # Bridges nearby OGN network traffic (not just our own dongle - see
-  # ogn-bridge/bridge.py) into ultrafeeder's SBS input, so tar1090 shows
-  # FLARM/OGN traffic on the same map as ADS-B.
+  # Puts FLARM/OGN traffic on tar1090 via ultrafeeder's SBS input: our own SDR
+  # (ogn-decode logs in here as its "APRS server", so it works with no internet;
+  # positions are relayed on to aprs.glidernet.org when online) plus the wider
+  # OGN network when reachable, de-duplicated in favour of the local SDR. See
+  # ogn-bridge/bridge.py.
   ogn-bridge:
     <<: *hardened
     build: ./ogn-bridge
@@ -276,6 +301,7 @@ services:
     read_only: true
     networks:
       - adsb
+      - ogn
     depends_on:
       - ultrafeeder
     environment:
@@ -287,7 +313,8 @@ services:
 
   # --- FLARM/OGN (868.8MHz) -----------------------------------------------
   # Split decoder pattern: ogn-rf owns the SDR and streams spectra to
-  # ogn-decode over TCP 50010, which pushes positions to aprs.glidernet.org.
+  # ogn-decode over TCP 50010, which pushes positions to ogn-bridge (which
+  # shows them on tar1090 and relays them on to aprs.glidernet.org).
   ogn-rf:
     <<: *hardened
     build:
@@ -346,6 +373,7 @@ services:
       - ogn
     depends_on:
       - ogn-rf
+      - ogn-bridge
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.ogn-decode.rule=PathPrefix(`/ogn-decode`)"
@@ -373,7 +401,7 @@ networks:
     name: mcp-proxy
   # ultrafeeder <-> feeders and the OGN bridge.
   adsb:
-  # ogn-rf <-> ogn-decode spectra stream.
+  # ogn-rf <-> ogn-decode spectra stream, and ogn-decode -> ogn-bridge positions.
   ogn:
   # Traefik <-> socket-proxy only; no route out.
   docker-api:
