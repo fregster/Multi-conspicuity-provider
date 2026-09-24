@@ -53,7 +53,7 @@ sbs_lock = threading.Lock()
 sbs_retry_at = 0.0
 
 # Health for the status page: open links, and when each flow last moved data.
-connected = {"decoder": 0, "uplink": False, "sbs": False}
+connected = {"decoder": 0, "uplink": 0, "sbs": False}
 last = {}  # event -> monotonic time
 
 
@@ -71,7 +71,7 @@ class StatusHandler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def log_message(self, *args):
-        pass
+        pass  # silence per-request stderr logging
 
 
 def sbs_send(line):
@@ -143,7 +143,7 @@ last_local = {}  # address -> monotonic time last heard by our SDR (one float pe
 def process_beacon(raw_message, local):
     try:
         beacon = parse(raw_message)
-    except Exception:  # noqa: BLE001 - AprsParseError, or anything odd in a line from the wire
+    except Exception:  # noqa: BLE001 - AprsParseError or anything odd in a line from the wire
         return
     line = to_sbs(beacon)
     if not line:
@@ -167,25 +167,28 @@ def relay_upstream(q, login, stop):
             up.sendall((login + "\r\n").encode())
             up.setblocking(False)
             log.info("Connected to OGN network, relaying local feed")
-            connected["uplink"] = True
-            while not stop.is_set():
-                try:
-                    line = q.get(timeout=5)
-                except queue.Empty:
-                    line = None
-                if line:
-                    up.sendall((line + "\r\n").encode())
-                    seen("uplink_tx")
-                try:  # drain server comments so its send buffer never stalls; b"" = closed
-                    if not up.recv(4096):
-                        raise OSError("closed by server")
-                except BlockingIOError:
-                    pass
-            up.close()
-            connected["uplink"] = False
+            # A count, not a bool: when ogn-decode reconnects, the old relay exits up to
+            # 5s after the new one connects and would otherwise clear its flag.
+            connected["uplink"] += 1
+            try:
+                while not stop.is_set():
+                    try:
+                        line = q.get(timeout=5)
+                    except queue.Empty:
+                        line = None
+                    if line:
+                        up.sendall((line + "\r\n").encode())
+                        seen("uplink_tx")
+                    try:  # drain server comments so its send buffer never stalls; b"" = closed
+                        if not up.recv(4096):
+                            raise OSError("closed by server")
+                    except BlockingIOError:
+                        pass
+            finally:
+                up.close()
+                connected["uplink"] -= 1
         except OSError as e:
             log.warning(f"OGN network relay down ({e}), retrying in 10s")
-            connected["uplink"] = False
             while not q.empty():  # drop the backlog
                 q.get_nowait()
             stop.wait(10)
