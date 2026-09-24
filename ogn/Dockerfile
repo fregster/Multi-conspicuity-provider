@@ -15,12 +15,13 @@ SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 RUN apt-get update && apt-get install -y --no-install-recommends wget ca-certificates && \
     rm -rf /var/lib/apt/lists/*
 RUN wget --no-check-certificate -qO- http://download.glidernet.org/arm64/rtlsdr-ogn-bin-arm64-latest.tgz | tar xz -C /tmp && \
-    mkdir -p /out && cp /tmp/rtlsdr-ogn/${BINARY} /out/${BINARY}
+    mkdir -p /out && cp "/tmp/rtlsdr-ogn/${BINARY}" "/out/${BINARY}"
 # EGM96 geoid table: ogn-decode downloads this on every start (it lives on a
 # tmpfs) and without it every altitude is ~50m off, so bake it in for offline
-# sites - the file is global and never changes.
-RUN wget --no-check-certificate -qO /out/WW15MGH.DAC http://download.glidernet.org/common/WW15MGH.DAC && \
-    [ "$(stat -c %s /out/WW15MGH.DAC)" -gt 1000000 ]
+# sites - the file is global and never changes, so its hash is pinned (glidernet
+# has no working HTTPS, and the -latest tarball above changes so can't be pinned).
+RUN wget -qO /out/WW15MGH.DAC http://download.glidernet.org/common/WW15MGH.DAC && \
+    echo "9dcaf4efd6857aaa2e1e2e2c574d3f5264eacf47024cdcd5291c40ddad5e5acc  /out/WW15MGH.DAC" | sha256sum -c -
 
 FROM debian:trixie-slim
 ARG BINARY

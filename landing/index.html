@@ -27,7 +27,8 @@
   small { opacity: 0.7; }
   h2 { font-size: 1.1rem; margin-top: 2rem; }
   table { width: 100%; border-collapse: collapse; }
-  td { padding: 0.25rem 0.5rem 0.25rem 0; vertical-align: top; }
+  th { text-align: left; }
+  td, th { padding: 0.25rem 0.5rem 0.25rem 0; vertical-align: top; }
   td:last-child { opacity: 0.7; font-size: 0.9em; }
   .ok::before, .warn::before, .bad::before { content: "\25CF\00A0"; }
   .ok::before { color: #2a2; }
@@ -48,11 +49,11 @@
 <p><small>ADSBHub and RadarBox/AirNav Radar have no web UI, so they aren't listed here.</small></p>
 
 <h2>ADS-B feeds</h2>
-<table id="adsb"></table>
+<table><thead><tr><th>Feed</th><th>Status</th></tr></thead><tbody id="adsb"></tbody></table>
 <h2>OGN / FLARM feeds</h2>
-<table id="ogn"></table>
+<table><thead><tr><th>Feed</th><th>Status</th></tr></thead><tbody id="ogn"></tbody></table>
 <h2>Containers</h2>
-<table id="containers"></table>
+<table><thead><tr><th>Container</th><th>Status</th></tr></thead><tbody id="containers"></tbody></table>
 <p><small id="updated">Loading status&hellip;</small></p>
 
 <script>

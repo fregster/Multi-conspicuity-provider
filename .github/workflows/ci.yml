@@ -40,7 +40,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: pip install --only-binary :all: ruff==0.16.8
+      - run: pip install --only-binary ':all:' ruff==0.16.8
       - run: ruff check ogn-bridge/ status/
       - run: ruff format --check ogn-bridge/ status/
 

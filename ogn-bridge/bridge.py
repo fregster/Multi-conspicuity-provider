@@ -71,7 +71,7 @@ class StatusHandler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def log_message(self, *args):
-        pass
+        pass  # silence per-request stderr logging
 
 
 def sbs_send(line):

@@ -86,7 +86,7 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def log_message(self, *args):
-        pass
+        pass  # silence per-request stderr logging
 
 
 if __name__ == "__main__":
