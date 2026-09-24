@@ -11,7 +11,7 @@ jobs:
   compose-config:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Validate compose config
         run: |
           cp .env.example .env
@@ -20,7 +20,7 @@ jobs:
   build-images:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - run: docker build ./ogn --build-arg BINARY=ogn-rf -t ogn-rf-ci
       - run: docker build ./ogn --build-arg BINARY=ogn-decode -t ogn-decode-ci
       - run: docker build ./ogn-bridge -t ogn-bridge-ci
@@ -33,13 +33,13 @@ jobs:
   shellcheck:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - run: shellcheck deploy.sh harden-host.sh systemd/install.sh ogn/entrypoint.sh
 
   ruff:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - run: pip install --only-binary ':all:' ruff==0.16.8
       - run: ruff check ogn-bridge/ status/
       - run: ruff format --check ogn-bridge/ status/
@@ -47,7 +47,7 @@ jobs:
   hadolint:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: hadolint/hadolint-action@54c9adbab1582c2ef04b2016b760714a4bfde3cf # v3.1.0
         with:
           dockerfile: ogn/Dockerfile
@@ -64,13 +64,13 @@ jobs:
   actionlint:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: raven-actions/actionlint@3d39aea434753780c3b3d4a1a31c854b4dbf49d7 # v2.2.0
 
   gitleaks:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7 # v2.3.9
