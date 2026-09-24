@@ -25,4 +25,35 @@ bridge.process_beacon("MYCALL>APRS,TCPIP*:/074548h5111.32NI00102.04W&/A=000607",
 bridge.process_beacon("garbage", local=True)
 assert len(sent) == 4
 assert {"local_to_tar1090", "network_to_tar1090"} <= bridge.last.keys()  # status page ages
+
+
+class FakeUp:
+    def sendall(self, data):
+        pass
+
+    def setblocking(self, flag):
+        pass
+
+    def recv(self, n):
+        raise BlockingIOError
+
+    def close(self):
+        pass
+
+
+# ogn-decode reconnects: the old relay exits after the new one is up, uplink must stay connected
+bridge.socket.create_connection = lambda *a, **k: FakeUp()
+bridge.queue.Queue.get = lambda self, timeout: None  # no 5s wait per loop
+old, new = bridge.threading.Event(), bridge.threading.Event()
+for stop in (old, new):
+    bridge.threading.Thread(
+        target=bridge.relay_upstream, args=(bridge.queue.Queue(), "user X", stop), daemon=True
+    ).start()
+bridge.time.sleep(0.1)
+old.set()
+bridge.time.sleep(0.1)
+assert bridge.connected["uplink"] == 1, bridge.connected
+new.set()
+bridge.time.sleep(0.1)
+assert bridge.connected["uplink"] == 0, bridge.connected
 print("ok")

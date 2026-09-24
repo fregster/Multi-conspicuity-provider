@@ -13,10 +13,10 @@ DIR=${DOCKERHOSTING_DIR:-/opt/dockerHosting}
 # aide: daily full-disk hashing wears SD cards - drop it via HARDEN_SKIP if on SSD/NVMe.
 SKIP=${HARDEN_SKIP:-traefik,aide}
 # Blacklisting usb-storage leaves a USB-booted Pi unbootable.
-case "$(findmnt -no SOURCE /)" in /dev/sd*) SKIP+=",usb" ;; esac
+case "$(findmnt -no SOURCE /)" in /dev/sd*) SKIP+=",usb" ;; *) ;; esac
 
 command -v git > /dev/null || { sudo apt-get update && sudo apt-get install -y git; }
-if [ -d "$DIR/.git" ]; then
+if [[ -d "$DIR/.git" ]]; then
     sudo git -C "$DIR" fetch --quiet origin "$REF"
     sudo git -C "$DIR" checkout --quiet FETCH_HEAD
 else
