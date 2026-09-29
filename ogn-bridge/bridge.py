@@ -14,7 +14,10 @@ an aircraft has been heard locally, network reports for it are dropped for
 LOCAL_HOLD_S seconds (otherwise the two sources make the icon jump between them).
 
 SBS line format and the "~" non-ICAO-address prefix convention are taken
-from readsb's own decoder (decodeSbsLine in net_io.c), not guessed:
+from readsb's own decoder (decodeSbsLine in net_io.c), not guessed. A beacon whose
+OGN address type is ICAO goes out without the "~": it is the aircraft's real Mode S
+address, so readsb merges it into the aircraft's own entry instead of listing a
+second "~" copy beside it.
 MSG,3,1,1,~icaoHex,1,date,time,date,time,callsign,alt_ft,speed_kt,track,lat,lon,vrate_fpm,,,,,,
 """
 
@@ -43,6 +46,7 @@ LISTEN_PORT = int(os.environ.get("APRS_LISTEN_PORT", "14580"))
 STATUS_PORT = int(os.environ.get("STATUS_PORT", "8080"))
 UPSTREAM = ("aprs.glidernet.org", 14580)
 LOCAL_HOLD_S = 30
+ADDRESS_TYPE_ICAO = 1  # OGN address types: 0 random, 1 ICAO, 2 FLARM, 3 OGN
 
 FEET_PER_METER = 1 / 0.3048
 KNOTS_PER_KMH = 1 / 1.852
@@ -113,7 +117,7 @@ def to_sbs(beacon):
     if not all(beacon.get(k) is not None for k in ("address", "latitude", "longitude")):
         return None
 
-    icao = f"~{beacon['address']}"
+    icao = beacon["address"] if beacon.get("address_type") == ADDRESS_TYPE_ICAO else f"~{beacon['address']}"
     callsign = sanitize_callsign(beacon.get("name", "OGN"))
 
     now = datetime.now(timezone.utc)

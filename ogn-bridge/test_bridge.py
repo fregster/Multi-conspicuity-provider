@@ -25,6 +25,12 @@ bridge.process_beacon("MYCALL>APRS,TCPIP*:/074548h5111.32NI00102.04W&/A=000607",
 bridge.process_beacon("garbage", local=True)
 assert len(sent) == 4
 assert {"local_to_tar1090", "network_to_tar1090"} <= bridge.last.keys()  # status page ages
+assert sent[0].split(",")[4] == "~DDA5BA"  # FLARM address: readsb's non-ICAO prefix
+# ICAO address: no "~", so readsb merges it with the aircraft's own ADS-B entry
+bridge.process_beacon(
+    "ICA4080F6>OGADSB,qAS,RX:/074548h5111.32N/00102.04W^152/335/A=015413 !W00! id054080F6", local=False
+)
+assert sent[-1].split(",")[4] == "4080F6", sent[-1]
 
 
 class FakeUp:
