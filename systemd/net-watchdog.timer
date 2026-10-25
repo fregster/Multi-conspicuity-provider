@@ -1,0 +1,10 @@
+[Unit]
+Description=Check the uplink every minute (net-watchdog.service)
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=1min
+AccuracySec=10s
+
+[Install]
+WantedBy=timers.target

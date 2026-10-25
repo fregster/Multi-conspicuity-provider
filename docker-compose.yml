@@ -68,6 +68,28 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
 
+  # Second socket-proxy for healer only: everything denied except
+  # POST /containers/<id>/(stop|restart|kill). Separate from socket-proxy so
+  # Traefik/status never get write access.
+  socket-proxy-restart:
+    <<: *hardened
+    image: tecnativa/docker-socket-proxy:v0.5.0
+    container_name: socket-proxy-restart
+    read_only: true
+    tmpfs:
+      - /run
+      - /tmp
+    networks:
+      - docker-restart
+    environment:
+      - POST=1
+      - ALLOW_RESTARTS=1
+      - EVENTS=0
+      - PING=0
+      - VERSION=0
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+
   # Static holding page at "/" linking to every service's path - otherwise
   # the root of the site 404s, since every other router matches a subpath.
   landing:
@@ -120,6 +142,7 @@ services:
       - "traefik.http.routers.tar1090.middlewares=tar1090-strip"
       - "traefik.http.middlewares.tar1090-strip.stripprefix.prefixes=/tar1090"
       - "traefik.http.services.tar1090.loadbalancer.server.port=80"
+      - "autoheal=local" # see healer/healer.py
     environment:
       - TZ=${TZ:-UTC}
       - READSB_DEVICE_TYPE=rtlsdr
@@ -170,6 +193,7 @@ services:
       - "traefik.http.routers.piaware.middlewares=piaware-strip"
       - "traefik.http.middlewares.piaware-strip.stripprefix.prefixes=/piaware"
       - "traefik.http.services.piaware.loadbalancer.server.port=80"
+      - "autoheal=uplink"
     environment:
       - TZ=${TZ:-UTC}
       - RECEIVER_TYPE=relay
@@ -184,6 +208,8 @@ services:
       - SETGID
     image: ghcr.io/sdr-enthusiasts/docker-adsbhub:${ADSBHUB_TAG:-latest}
     container_name: adsbhub
+    labels:
+      - "autoheal=uplink"
     networks:
       - adsb
     depends_on:
@@ -211,6 +237,7 @@ services:
       - "traefik.http.routers.fr24feed.middlewares=fr24feed-strip"
       - "traefik.http.middlewares.fr24feed-strip.stripprefix.prefixes=/fr24feed"
       - "traefik.http.services.fr24feed.loadbalancer.server.port=8754"
+      - "autoheal=uplink"
     environment:
       - TZ=${TZ:-UTC}
       - BEASTHOST=ultrafeeder
@@ -226,6 +253,8 @@ services:
       - SETGID
     image: ghcr.io/sdr-enthusiasts/docker-airnavradar:${AIRNAVRADAR_TAG:-latest}
     container_name: radarbox
+    labels:
+      - "autoheal=uplink"
     networks:
       - adsb
     depends_on:
@@ -249,6 +278,8 @@ services:
       - SETGID
     image: ghcr.io/sdr-enthusiasts/docker-opensky-network:${OPENSKY_TAG:-latest}
     container_name: opensky
+    labels:
+      - "autoheal=uplink"
     networks:
       - adsb
     depends_on:
@@ -284,6 +315,7 @@ services:
       - "traefik.http.routers.planefinder.middlewares=planefinder-strip"
       - "traefik.http.middlewares.planefinder-strip.stripprefix.prefixes=/planefinder"
       - "traefik.http.services.planefinder.loadbalancer.server.port=30053"
+      - "autoheal=uplink"
     environment:
       - TZ=${TZ:-UTC}
       - BEASTHOST=ultrafeeder
@@ -416,6 +448,24 @@ services:
       - "traefik.http.routers.status.tls=true"
       - "traefik.http.services.status.loadbalancer.server.port=8080"
 
+  # Restarts containers whose healthcheck reports unhealthy (Docker never does
+  # by itself), opted in with an `autoheal` label; feeders only while the
+  # internet is reachable. See healer/healer.py.
+  healer:
+    <<: *hardened
+    build: ./healer
+    container_name: healer
+    read_only: true
+    depends_on:
+      - socket-proxy
+      - socket-proxy-restart
+    networks:
+      - adsb # egress for the online check
+      - docker-api
+      - docker-restart
+    environment:
+      - *ultrafeeder-config
+
 volumes:
   ultrafeeder_globe_history:
   ultrafeeder_graphs:
@@ -430,4 +480,7 @@ networks:
   ogn:
   # Traefik <-> socket-proxy only; no route out.
   docker-api:
+    internal: true
+  # healer <-> socket-proxy-restart only; no route out.
+  docker-restart:
     internal: true
