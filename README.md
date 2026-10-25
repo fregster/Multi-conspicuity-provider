@@ -44,6 +44,11 @@ OGN APRS-IS (network-wide, when online) ------------------> ogn-bridge (local SD
 
   This works because all of these apps reference their own assets with relative paths - verify that's true before adding another one this way (or use `Host()` rules instead if an app uses root-absolute asset paths). ADSBHub and RadarBox/AirNav Radar have no web UI, so they aren't in the list. The site root (`/`) serves a static holding page (`landing/`, plain nginx) linking to each of these - it's a Traefik catch-all with an explicit low priority so it never shadows the more specific per-service routers. tar1090 also stays reachable directly over plain HTTP on `TAR1090_PORT` (e.g. for LAN use without the cert warning), same as `ogn-rf`/`ogn-decode` on their own `OGN_RF_STATUS_PORT`/`OGN_DECODE_STATUS_PORT`. Note Traefik's Docker provider won't route to a container until its own healthcheck passes, so a freshly (re)started service can 404 through the proxy for a minute or two even though it's actually coming up fine.
 
+### Self-recovery
+
+- Docker's `restart: unless-stopped` only restarts a container whose process exits; a container whose healthcheck says `unhealthy` (e.g. fr24feed after losing its uplink) is left alone. **healer** (`healer/healer.py`) restarts those, opted in with an `autoheal` label: `autoheal=local` for ultrafeeder (its healthcheck is purely local, so it is always restarted) and `autoheal=uplink` for the dedicated feeders, which are only restarted while the internet is reachable - offline they all go unhealthy and a restart can't help. Each container is restarted at most once per 30 min. Restarts go through a second socket-proxy (`socket-proxy-restart`) that allows nothing but container stop/restart/kill; listing stays on the read-only one.
+- On the host, `systemd/install.sh` also installs **net-watchdog.timer**: if eth0 has no default route or its gateway stops answering pings for 5 minutes, it re-activates the interface with `nmcli` to force a fresh DHCP lease.
+
 ## Prerequisites
 
 - One RTL-SDR per frequency you want to receive (1090MHz for ADS-B, 868.8MHz for FLARM/OGN). A single dongle can run ADS-B-only until a second is added.
@@ -54,7 +59,7 @@ OGN APRS-IS (network-wide, when online) ------------------> ogn-bridge (local SD
 1. `cp .env.example .env` and fill in your station's coordinates and each network's API key/UUID.
 2. Running locally on the host itself: `docker compose up -d --build`.
 3. Deploying to a remote host over SSH (e.g. the Pi): also fill in `PI_HOST`/`PI_USER` in `.env` (used only by `deploy.sh`, not read by Compose itself), then run `./deploy.sh` - it rsyncs the repo over and runs `docker compose up -d --build` there.
-4. Starting on boot: on the host running the stack, run `./systemd/install.sh` once. It installs and enables a `multi-conspicuity-provider.service` unit, manageable the normal way: `sudo systemctl {start,stop,restart,status} multi-conspicuity-provider`.
+4. Starting on boot: on the host running the stack, run `./systemd/install.sh` once. It installs and enables a `multi-conspicuity-provider.service` unit, manageable the normal way: `sudo systemctl {start,stop,restart,status} multi-conspicuity-provider`. It also installs the `net-watchdog.timer` uplink watchdog (see Self-recovery).
 
 ## Host hardening (optional)
 

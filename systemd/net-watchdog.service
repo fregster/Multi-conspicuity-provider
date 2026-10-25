@@ -1,0 +1,7 @@
+[Unit]
+Description=Re-activate the uplink if the gateway stays unreachable
+After=NetworkManager.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/net-watchdog
