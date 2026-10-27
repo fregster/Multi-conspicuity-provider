@@ -15,6 +15,7 @@ jobs:
       - name: Validate compose config
         run: |
           cp .env.example .env
+          ./init-uuids.sh
           docker compose config >/dev/null
 
   build-images:
@@ -32,20 +33,22 @@ jobs:
         run: docker run --rm -v "$PWD/status:/t:ro" -w /t --entrypoint python3 status-ci test_status.py
       - name: Healer tests
         run: docker run --rm -v "$PWD/healer:/t:ro" -w /t --entrypoint python3 healer-ci test_healer.py
+      - name: Offline tiles tests
+        run: docker run --rm -v "$PWD/tiles:/t:ro" -w /t --entrypoint python3 status-ci test_offline_tiles.py
 
   shellcheck:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: shellcheck deploy.sh harden-host.sh systemd/install.sh systemd/net-watchdog.sh ogn/entrypoint.sh
+      - run: shellcheck deploy.sh init-uuids.sh harden-host.sh systemd/install.sh systemd/net-watchdog.sh ogn/entrypoint.sh
 
   ruff:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - run: pip install --only-binary ':all:' ruff==0.16.8
-      - run: ruff check ogn-bridge/ status/ healer/
-      - run: ruff format --check ogn-bridge/ status/ healer/
+      - run: ruff check ogn-bridge/ status/ healer/ tiles/
+      - run: ruff format --check ogn-bridge/ status/ healer/ tiles/
 
   hadolint:
     runs-on: ubuntu-latest

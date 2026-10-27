@@ -4,6 +4,7 @@ set -euo pipefail
 cd "$(dirname "$0")"
 
 [[ -f .env ]] || { echo ".env missing - copy .env.example and fill it in" >&2; exit 1; }
+./init-uuids.sh
 
 # Extract just these two values rather than sourcing the whole file - .env
 # holds real secrets that may contain characters unsafe for bash to parse.

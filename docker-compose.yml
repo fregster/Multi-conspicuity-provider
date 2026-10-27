@@ -12,6 +12,12 @@ x-hardened: &hardened
   # traefik->socket-proxy, fr24feed, and adsbhub's healthcheck/uplink.
   dns_search: .
 
+# The dedicated feeders: capped at 15% of a core so a misbehaving client can't
+# starve readsb or ogn-decode of the CPU their timing depends on.
+x-feeder: &feeder
+  <<: *hardened
+  cpus: 0.15
+
 # sdr-enthusiasts images start s6-overlay as root and drop to nobody/www-data
 # themselves, so some add caps back. Each list is the measured minimum (a
 # leave-one-out test per cap on the Pi); re-test after image updates:
@@ -116,8 +122,8 @@ services:
       - "traefik.http.services.landing.loadbalancer.server.port=8080"
 
   # --- ADS-B (1090MHz) ---------------------------------------------------
-  # Decodes 1090MHz ADS-B, serves the local tar1090 map, and feeds adsb.lol
-  # and adsb.fi directly (no separate container needed for either network).
+  # Decodes 1090MHz ADS-B, serves the local tar1090 map, and feeds every
+  # aggregator in ULTRAFEEDER_CONFIG directly (no separate containers needed).
   ultrafeeder:
     <<: *hardened
     cap_add:
@@ -154,24 +160,73 @@ services:
       - READSB_ALT=${STATION_ALT_M}m
       - READSB_RX_LOCATION_ACCURACY=2
       - READSB_STATS_RANGE=true
-      - UUID=${ADSBLOL_UUID}
+      # Drop decoded positions further than this (nm) - they're bogus.
+      - READSB_MAX_RANGE=300
+      # SD-card wear: range outlines/state written only on shutdown, graphs
+      # flushed to disk daily instead of continuously.
+      - READSB_WRITE_STATE_ONLY_ON_EXIT=true
+      - GRAPHS1090_REDUCE_IO=true
       - MLAT_USER=${STATION_NAME}
-      - &ultrafeeder-config ULTRAFEEDER_CONFIG=adsb,in.adsb.lol,30004,beast_reduce_plus_out,uuid=${ADSBLOL_UUID};mlat,in.adsb.lol,31090,uuid=${ADSBLOL_UUID};adsb,feed.adsb.fi,30004,beast_reduce_plus_out;mlat,feed.adsb.fi,31090;adsb,feed.airplanes.live,30004,beast_reduce_plus_out;mlat,feed.airplanes.live,31090;adsb,feed.planespotters.net,30004,beast_reduce_plus_out;mlat,mlat.planespotters.net,31090;adsb,feed1.adsbexchange.com,30004,beast_reduce_plus_out;mlat,feed.adsbexchange.com,31090;adsb,feed.theairtraffic.com,30004,beast_reduce_plus_out;mlat,feed.theairtraffic.com,31090
+      # Default 15s per mlat-client; with ~13 of them that's minutes of startup.
+      - MLAT_STARTUP_STAGGER=1
+      # Every aggregator gets its own UUID (./init-uuids.sh fills them in), so
+      # they can't link this station across networks - without one, ultrafeeder
+      # falls back to sending the same global UUID to all of them. --privacy
+      # keeps the station off the public MLAT sync maps.
+      - &ultrafeeder-config "ULTRAFEEDER_CONFIG=\
+          adsb,in.adsb.lol,30004,beast_reduce_plus_out,uuid=${ADSBLOL_UUID:?};\
+          mlat,in.adsb.lol,31090,uuid=${ADSBLOL_UUID:?},--privacy;\
+          adsb,feed.adsb.fi,30004,beast_reduce_plus_out,uuid=${ADSBFI_UUID:?};\
+          mlat,feed.adsb.fi,31090,uuid=${ADSBFI_UUID:?},--privacy;\
+          adsb,feed.airplanes.live,30004,beast_reduce_plus_out,uuid=${AIRPLANESLIVE_UUID:?};\
+          mlat,feed.airplanes.live,31090,uuid=${AIRPLANESLIVE_UUID:?},--privacy;\
+          adsb,feed.planespotters.net,30004,beast_reduce_plus_out,uuid=${PLANESPOTTERS_UUID:?};\
+          mlat,mlat.planespotters.net,31090,uuid=${PLANESPOTTERS_UUID:?},--privacy;\
+          adsb,feed1.adsbexchange.com,30004,beast_reduce_plus_out,uuid=${ADSBX_UUID:?};\
+          mlat,feed.adsbexchange.com,31090,uuid=${ADSBX_UUID:?},--privacy;\
+          adsb,feed.theairtraffic.com,30004,beast_reduce_plus_out,uuid=${THEAIRTRAFFIC_UUID:?};\
+          mlat,feed.theairtraffic.com,31090,uuid=${THEAIRTRAFFIC_UUID:?},--privacy;\
+          adsb,feed.adsb.win,30004,beast_reduce_plus_out,uuid=${ADSBWIN_UUID:?};\
+          mlat,mlat.adsb.win,31090,uuid=${ADSBWIN_UUID:?},--privacy;\
+          adsb,skyfeed.hpradar.com,30004,beast_reduce_plus_out,uuid=${HPRADAR_UUID:?};\
+          mlat,skyfeed.hpradar.com,31090,uuid=${HPRADAR_UUID:?},--privacy;\
+          adsb,dati.flyitalyadsb.com,4905,beast_reduce_plus_out,uuid=${FLYITALY_UUID:?};\
+          mlat,dati.flyitalyadsb.com,30100,uuid=${FLYITALY_UUID:?},--privacy;\
+          adsb,feed.adsbitalia.it,31108,beast_reduce_plus_out,uuid=${ADSBITALIA_UUID:?};\
+          mlat,mlat.adsbitalia.it,41113,uuid=${ADSBITALIA_UUID:?},--privacy;\
+          adsb,adsb.dataero.eu,30005,beast_reduce_plus_out,uuid=${DATAERO_UUID:?};\
+          mlat,adsb.dataero.eu,31090,uuid=${DATAERO_UUID:?},--privacy;\
+          adsb,feed.adsbiq.com,30004,beast_reduce_plus_out,uuid=${ADSBIQ_UUID:?};\
+          mlat,feed.adsbiq.com,31090,uuid=${ADSBIQ_UUID:?},--privacy;\
+          adsb,feed.planetrack.ai,30004,beast_reduce_plus_out,uuid=${PLANETRACK_UUID:?};\
+          mlat,feed.planetrack.ai,31090,uuid=${PLANETRACK_UUID:?},--privacy;\
+          adsb,data.avdelphi.com,24999,beast_reduce_plus_out,uuid=${AVDELPHI_UUID:?};\
+          adsb,feed.map.flights,30004,beast_reduce_plus_out,uuid=${MAPFLIGHTS_UUID:?};\
+          adsb,feed.skydex.online,30004,beast_reduce_plus_out,uuid=${SKYDEX_UUID:?};\
+          adsb,feed.flyoverhead.com,30004,beast_reduce_plus_out,uuid=${FLYOVERHEAD_UUID:?};\
+          adsb,feed.flyrealtraffic.com,30004,beast_reduce_plus_out,uuid=${REALTRAFFIC_UUID:?};\
+          adsb,feed.tryflightdeck.com,30004,beast_reduce_plus_out,uuid=${FLIGHTDECK_UUID:?}"
       - TAR1090_PAGETITLE=${STATION_NAME}
       - TAR1090_MESSAGERATEINTITLE=true
       - TAR1090_PLANECOUNTINTITLE=true
       - TAR1090_SITESHOW=true
+      - TAR1090_RANGE_OUTLINE_COLORED_BY_ALTITUDE=true
+      - HEYWHATSTHAT_PANORAMA_ID=${HEYWHATSTHAT_PANORAMA_ID:-}
       - UPDATE_TAR1090=true
     volumes:
       - ultrafeeder_globe_history:/var/globe_history
       - ultrafeeder_graphs:/var/lib/collectd
       - /dev/bus/usb:/dev/bus/usb
+      # Offline basemap store, filled by tiles/offline_tiles.py. tar1090 adds
+      # an "OpenStreetMap offline" layer at startup when it holds any tiles.
+      - ${OFFLINE_TILES_DIR:-/usr/local/share/osm_tiles_offline}:/usr/local/share/osm_tiles_offline:ro
     tmpfs:
       - /run:exec,size=256M
+      - /var/log:size=32M
 
   # Feeds PiAware/FlightAware from ultrafeeder's Beast output - no SDR of its own.
   piaware:
-    <<: *hardened
+    <<: *feeder
     cap_add:
       - CHOWN
       - DAC_OVERRIDE
@@ -203,7 +258,7 @@ services:
 
   # Feeds ADSBHub from ultrafeeder's SBS output - no SDR of its own.
   adsbhub:
-    <<: *hardened
+    <<: *feeder
     cap_add:
       - SETGID
     image: ghcr.io/sdr-enthusiasts/docker-adsbhub:${ADSBHUB_TAG:-latest}
@@ -221,7 +276,7 @@ services:
 
   # Feeds FlightRadar24 from ultrafeeder's Beast output - no SDR of its own.
   fr24feed:
-    <<: *hardened
+    <<: *feeder
     image: ghcr.io/sdr-enthusiasts/docker-flightradar24:${FR24_TAG:-latest}
     container_name: fr24feed
     networks:
@@ -242,11 +297,13 @@ services:
       - TZ=${TZ:-UTC}
       - BEASTHOST=ultrafeeder
       - FR24KEY=${FR24_SHARING_KEY}
-      - MLAT=yes
+      # Off by default: FR24 asks stations feeding several aggregators not to
+      # MLAT with them (ultrafeeder README). The other networks keep MLAT on.
+      - MLAT=${FR24_MLAT:-no}
 
   # Feeds RadarBox/AirNav Radar from ultrafeeder's Beast output - no SDR of its own.
   radarbox:
-    <<: *hardened
+    <<: *feeder
     cap_add:
       - CHOWN
       - SETUID
@@ -271,7 +328,7 @@ services:
 
   # Feeds OpenSky Network from ultrafeeder's Beast output - no SDR of its own.
   opensky:
-    <<: *hardened
+    <<: *feeder
     cap_add:
       - CHOWN
       - SETUID
@@ -295,7 +352,7 @@ services:
 
   # Feeds PlaneFinder from ultrafeeder's Beast output - no SDR of its own.
   planefinder:
-    <<: *hardened
+    <<: *feeder
     cap_add:
       - CHOWN
       - SETUID
