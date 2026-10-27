@@ -297,7 +297,9 @@ services:
       - TZ=${TZ:-UTC}
       - BEASTHOST=ultrafeeder
       - FR24KEY=${FR24_SHARING_KEY}
-      - MLAT=no # ultrafeeder README: FR24 asks multi-aggregator feeders not to MLAT with them
+      # Off by default: FR24 asks stations feeding several aggregators not to
+      # MLAT with them (ultrafeeder README). The other networks keep MLAT on.
+      - MLAT=${FR24_MLAT:-no}
 
   # Feeds RadarBox/AirNav Radar from ultrafeeder's Beast output - no SDR of its own.
   radarbox:
