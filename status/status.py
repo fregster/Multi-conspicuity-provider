@@ -7,6 +7,10 @@ fetched per request and reported as null if it can't be reached.
 Container list comes via the read-only socket-proxy; only name/state/status
 are passed on, never env or labels. The dedicated feeder containers' own
 healthchecks already verify their uplink, so their health IS their feed health.
+
+The aggregators with a public "what do you see from my IP" JSON API are also
+asked whether our Beast/MLAT feeds actually arrive (cached REMOTE_TTL_S, they
+are third-party services). Matching is by source IP, not UUID.
 """
 
 import json
@@ -15,17 +19,26 @@ import re
 import socket
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.request import urlopen
+from urllib.request import Request, urlopen
 
 DOCKER = "http://socket-proxy:2375"
 ULTRAFEEDER = "http://ultrafeeder"
 BRIDGE = "http://ogn-bridge:8080/"
 # "mlat,host,port,..." entries - the same ULTRAFEEDER_CONFIG ultrafeeder runs with.
 MLAT = re.findall(r"(?:^|;)mlat,([^,;]+),(\d+)", os.environ.get("ULTRAFEEDER_CONFIG", ""))
+# site -> (url, beast list key path, mlat list key path) in that site's JSON.
+# Not adsb.lol: its /0/me listed no clients while we were demonstrably feeding it.
+REMOTE = {
+    "adsb.fi": ("https://api.adsb.fi/v1/myip", ("beast",), ("mlat",)),
+    "airplanes.live": ("https://api.airplanes.live/feed-status", ("beast_clients",), ("mlat_clients",)),
+}
+REMOTE_TTL_S = 300
+_remote = {"at": float("-inf"), "data": None}
 
 
 def get(url):
-    with urlopen(url, timeout=3) as r:
+    # Aggregator APIs 403 Python's default User-Agent.
+    with urlopen(Request(url, headers={"User-Agent": "multi-conspicuity-provider/status"}), timeout=3) as r:
         return r.read()
 
 
@@ -60,6 +73,29 @@ def mlat():
     return out
 
 
+def dig(doc, path):
+    """Non-empty client list at path -> True, empty -> False, key missing (API changed) -> None."""
+    for k in path:
+        doc = doc.get(k) if isinstance(doc, dict) else None
+    return None if doc is None else bool(doc)
+
+
+def seen(doc, beast_path, mlat_path):
+    """Does the aggregator report at least one Beast / MLAT client from our IP?"""
+    return {"beast": dig(doc, beast_path), "mlat": dig(doc, mlat_path)}
+
+
+def remote():
+    if time.monotonic() - _remote["at"] < REMOTE_TTL_S:
+        return _remote["data"]
+    out = []
+    for site, (url, b, m) in REMOTE.items():
+        r = safe(lambda: seen(json.loads(get(url)), b, m)) or {"beast": None, "mlat": None}
+        out.append({"site": site, **r})
+    _remote.update(at=time.monotonic(), data=out)
+    return out
+
+
 def safe(fn):
     try:
         return fn()
@@ -72,6 +108,7 @@ def status():
         "containers": safe(containers),
         "beast": safe(lambda: beast(get(f"{ULTRAFEEDER}/metrics").decode())),
         "mlat": safe(mlat),
+        "remote": safe(remote),
         "ogn": safe(lambda: json.loads(get(BRIDGE))),
     }
 

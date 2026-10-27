@@ -8,4 +8,8 @@ import status
 assert status.MLAT == [("in.adsb.lol", "31090")]
 prom = 'readsb_net_connector_status{host="in.adsb.lol",port="30004"} 3204\nreadsb_uptime 5\n'
 assert status.beast(prom) == [{"host": "in.adsb.lol", "up_s": 3204}]
+
+lol = {"clients": {"beast": [{"uuid": "x"}], "mlat": []}}
+assert status.seen(lol, ("clients", "beast"), ("clients", "mlat")) == {"beast": True, "mlat": False}
+assert status.seen({}, ("beast",), ("mlat",)) == {"beast": None, "mlat": None}  # API changed shape
 print("ok")

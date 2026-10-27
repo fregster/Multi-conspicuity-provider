@@ -95,6 +95,10 @@ async function refresh() {
   for (const b of s.beast || []) (aggs[site(b.host)] ??= []).push(b.up_s > 0 ? ["ok", `Beast up ${dur(b.up_s)}`] : ["bad", "Beast down"]);
   for (const m of s.mlat || []) (aggs[site(m.host)] ??= []).push(
     m.age_s == null ? ["warn", "MLAT no sync stats"] : m.age_s > 300 ? ["bad", `MLAT stats stale ${ago(m.age_s)}`] : ["ok", `MLAT ${m.peers} peers`]);
+  // What the aggregator's own API says it receives from our IP (only some have one).
+  for (const r of s.remote || []) (aggs[r.site] ??= []).push(
+    r.beast == null ? ["warn", "server check failed"]
+      : [r.beast ? (r.mlat ? "ok" : "warn") : "bad", `server sees ${[r.beast && "Beast", r.mlat && "MLAT"].filter(Boolean).join("+") || "nothing"}`]);
   const worst = parts => ["bad", "warn", "ok"].find(l => parts.some(([p]) => p === l));
   fill("adsb", [
     ...(s.beast ? Object.entries(aggs).map(([a, parts]) => [worst(parts), a, parts.map(p => p[1]).join(", ")]) : na("ultrafeeder aggregators")),
