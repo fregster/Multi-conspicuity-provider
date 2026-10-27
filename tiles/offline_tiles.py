@@ -124,7 +124,7 @@ def main(argv=None):
         p.error(f"{n} tiles above zoom {PACK_MAX_ZOOM} - shrink the box/zoom or raise --max-tiles")
 
     os.umask(0o022)  # ultrafeeder's nginx must be able to read them
-    want = lambda z, x, y: keep(z, x, y, bbox, a.global_zoom, a.bbox_zoom)  # noqa: E731
+    want = lambda z, x, y: keep(z, x, y, bbox, a.global_zoom, a.bbox_zoom)
     unpack("osm_tiles_0_9.tar.gz", a.dir, want)
     if max(a.global_zoom, a.bbox_zoom) >= PACK_MAX_ZOOM:
         unpack("osm_tiles_10.tar.gz", a.dir, want)

@@ -90,7 +90,7 @@ def remote():
         return _remote["data"]
     out = []
     for site, (url, b, m) in REMOTE.items():
-        r = safe(lambda: seen(json.loads(get(url)), b, m)) or {"beast": None, "mlat": None}
+        r = safe(lambda url=url, b=b, m=m: seen(json.loads(get(url)), b, m)) or {"beast": None, "mlat": None}
         out.append({"site": site, **r})
     _remote.update(at=time.monotonic(), data=out)
     return out
