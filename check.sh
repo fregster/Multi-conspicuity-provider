@@ -37,7 +37,7 @@ done < <(files '*.py' | xargs -n1 dirname | sort -u)
 pytest_cov() {
     local image=$1 dir=$2 test=$3 user
     user=$(docker inspect -f '{{.Config.User}}' "$image")
-    printf 'FROM %s\nUSER root\nRUN pip install --no-cache-dir coverage==7.13.4\nUSER %s\n' "$image" "${user:-root}" |
+    printf 'FROM %s\nUSER root\nRUN pip install --no-cache-dir coverage==7.17.0\nUSER %s\n' "$image" "${user:-root}" |
         docker build -q -t "$image-cov" - > /dev/null
     docker run --rm -v "$PWD:/repo:ro" -w "/repo/$dir" -e COVERAGE_FILE=/tmp/.coverage --entrypoint sh "$image-cov" \
         -c "coverage run --rcfile=/repo/pyproject.toml $test && coverage report --rcfile=/repo/pyproject.toml"
