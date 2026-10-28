@@ -337,6 +337,86 @@ services:
       - HUB_MLAT_PORT=${HUB_MLAT_PORT:-31090}
       - HUB_ALLOWED_UUIDS=${HUB_ALLOWED_UUIDS:-}
 
+  # --- Stream: de-duplicated SBS + JSON for our own projects ---------------
+  # One net-only readsb (ultrafeeder's image, for its readsb binary only)
+  # merging our station with STREAM_PROVIDERS; see stream/stream.sh. Loopback
+  # ports only: stream-gate (COMPOSE_PROFILES=stream) and/or stream-tls-*
+  # (COMPOSE_PROFILES=stream-tls) publish it.
+  stream:
+    <<: *hardened
+    profiles: [stream, stream-tls]
+    image: ghcr.io/sdr-enthusiasts/docker-adsb-ultrafeeder:${ULTRAFEEDER_TAG:-latest}
+    container_name: stream
+    user: "65534:65534"
+    read_only: true
+    entrypoint: ["/stream/stream.sh"]
+    networks:
+      - adsb
+    depends_on:
+      - ultrafeeder
+      - ogn-bridge
+    environment:
+      - STATION_LAT=${STATION_LAT}
+      - STATION_LON=${STATION_LON}
+      - STREAM_PROVIDERS=${STREAM_PROVIDERS:-}
+      - STREAM_INTERVAL_S=${STREAM_INTERVAL_S:-0.5}
+      - *beast-peers
+    volumes:
+      - ./stream:/stream:ro
+    ports:
+      - "127.0.0.1:39103:30003"
+      - "127.0.0.1:39147:30047"
+
+  # Plain stream ports, no auth: host network so UFW decides who reaches them
+  # (hub/ufw.sh opens them to STREAM_ALLOWED_SOURCES only). Same gate as the hub.
+  stream-gate:
+    <<: *hardened
+    profiles: [stream]
+    build: ./hub
+    container_name: stream-gate
+    read_only: true
+    network_mode: host
+    depends_on:
+      - stream
+    environment:
+      - GATE_ROUTES=${STREAM_SBS_PORT:-30003}:open:39103,${STREAM_JSON_PORT:-30047}:open:39147
+
+  # mTLS stream ports: only clients presenting a cert signed by
+  # $STREAM_TLS_DIR/ca.crt get through (--allow-all = any such cert). One
+  # ghostunnel per port, host network so UFW still applies.
+  stream-tls-sbs: &stream-tls
+    <<: *hardened
+    profiles: [stream-tls]
+    image: ghostunnel/ghostunnel:v1.11.5
+    container_name: stream-tls-sbs
+    user: "65534:65534"
+    read_only: true
+    network_mode: host
+    depends_on:
+      - stream
+    volumes:
+      - ${STREAM_TLS_DIR:-/usr/local/etc/mcp-stream-tls}:/tls:ro
+    command:
+      - server
+      - --listen=0.0.0.0:${STREAM_TLS_SBS_PORT:-33003}
+      - --target=127.0.0.1:39103
+      - --cert=/tls/server.crt
+      - --key=/tls/server.key
+      - --cacert=/tls/ca.crt
+      - --allow-all
+
+  stream-tls-json:
+    <<: *stream-tls
+    container_name: stream-tls-json
+    command:
+      - server
+      - --listen=0.0.0.0:${STREAM_TLS_JSON_PORT:-33047}
+      - --target=127.0.0.1:39147
+      - --cert=/tls/server.crt
+      - --key=/tls/server.key
+      - --cacert=/tls/ca.crt
+      - --allow-all
+
   # Feeds PiAware/FlightAware from ultrafeeder's Beast output - no SDR of its own.
   piaware:
     <<: *feeder
@@ -497,7 +577,8 @@ services:
   # (ogn-decode logs in here as its "APRS server", so it works with no internet;
   # positions are relayed on to aprs.glidernet.org when online) plus the wider
   # OGN network when reachable, de-duplicated in favour of the local SDR. See
-  # ogn-bridge/bridge.py.
+  # ogn-bridge/bridge.py. Also serves the same SBS lines to the stream
+  # container: our receiver on 30003, the OGN network on 30013.
   ogn-bridge:
     <<: *hardened
     build: ./ogn-bridge

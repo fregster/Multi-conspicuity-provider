@@ -16,6 +16,11 @@ assert gate.beast_uuid(b"\x1a1" + bytes(40)) is None  # plain Beast, no UUID
 assert gate.mlat_uuid(MLAT) == OK
 assert gate.mlat_uuid(b'{"version": 3}\n') is None
 assert gate.mlat_uuid(b"garbage\n") is None
+assert gate.routes({"HUB_MLAT_PORT": "1"})[2] == (1, "mlat", ("127.0.0.1", 39090))
+assert gate.routes({"GATE_ROUTES": "30003:open:39103,30047:open:39147"}) == [
+    (30003, "open", ("127.0.0.1", 39103)),
+    (30047, "open", ("127.0.0.1", 39147)),
+]
 
 # End to end: a fake upstream records what reaches it through the gate.
 up = socket.create_server(("127.0.0.1", 0))
