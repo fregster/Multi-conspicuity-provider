@@ -1,0 +1,3 @@
+# Energy-Efficient Ethernet off on eth0: suspected cause of the Pi 5 NIC
+# silently passing no traffic (2026-10-28 outage).
+ACTION=="add", SUBSYSTEM=="net", KERNEL=="eth0", RUN+="/usr/sbin/ethtool --set-eee eth0 eee off"
