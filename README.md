@@ -81,7 +81,7 @@ CI also runs hadolint on every Dockerfile, actionlint, `docker compose config` a
 1. `cp .env.example .env`, fill in your station's coordinates and each network's API key, then run `./init-uuids.sh` to generate the per-aggregator UUIDs (Compose refuses to start while any is blank). Register `ADSBLOL_UUID` at https://adsb.lol/claim if you want adsb.lol stats.
 2. Running locally on the host itself: `docker compose up -d --build`.
 3. Deploying to a remote host over SSH (e.g. the Pi): also fill in `PI_HOST`/`PI_USER` in `.env` (used only by `deploy.sh`, not read by Compose itself), then run `./deploy.sh` - it rsyncs the repo over and runs `docker compose up -d --build` there.
-4. Starting on boot: on the host running the stack, run `./systemd/install.sh` once. It installs and enables a `multi-conspicuity-provider.service` unit, manageable the normal way: `sudo systemctl {start,stop,restart,status} multi-conspicuity-provider`. It also installs the `net-watchdog.timer` uplink watchdog (see Self-recovery).
+4. Starting on boot: on the host running the stack, run `./systemd/install.sh` once. It installs and enables a `multi-conspicuity-provider.service` unit, manageable the normal way: `sudo systemctl {start,stop,restart,status} multi-conspicuity-provider`. It also installs the `net-watchdog.timer` uplink watchdog (see Self-recovery). If the kernel's DVB-T drivers (`dvb_usb_rtl28xxu` etc.) aren't blacklisted, it offers to add `/etc/modprobe.d/blacklist-rtlsdr.conf` - otherwise they can claim the SDRs at boot and readsb/ogn-rf fail with `usb_claim_interface error -6`.
 
 ## Offline map (optional)
 
