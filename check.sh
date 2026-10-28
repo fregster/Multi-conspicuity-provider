@@ -6,7 +6,7 @@
 # is added (or it's listed as needing none).
 # Needs: git, docker.
 set -euo pipefail
-cd "$(dirname "$0")"
+cd "${CHECK_DIR:-$(dirname "$0")}" # CHECK_DIR: test_check.sh points it at a fixture repo
 
 fail=0
 bad() {
@@ -59,17 +59,44 @@ while read -r df; do
     done
 done < <(files '*Dockerfile')
 
-# 5. Every other test, each from its own directory: test_*.sh on the host,
-#    test_*.py outside image directories in the stock Python image.
+# 5. Every other test, each from its own directory: test_*.py outside image
+#    directories in the stock Python image, test_*.sh via shell_test.
+# shell_test DIR TEST: runs in a kcov image on a copy of the repo (tests may write
+# .env there), first plainly - each script under its own shebang, so dash for
+# #!/bin/sh - then under kcov with SH=bash: kcov only traces bash, so tests start
+# sh scripts as "${SH:-sh}". kcov measures lines only - shell has no branch
+# coverage - and an empty case arm, "pattern) ;;", has no line to run.
+kcov_image=mcp-check-kcov
+printf 'FROM debian:trixie-slim\nRUN apt-get update && apt-get install -y --no-install-recommends kcov git gettext-base && rm -rf /var/lib/apt/lists/*\n' |
+    docker build -q -t "$kcov_image" - > /dev/null
+rm -rf .kcov
+mkdir .kcov
+shell_test() {
+    local dir=$1 test=$2
+    files | COPYFILE_DISABLE=1 tar --no-xattrs -cf - -T - |
+        docker run --rm -i --user "$(id -u):$(id -g)" -v "$PWD/.kcov:/out" "$kcov_image" bash -c \
+            "mkdir /tmp/repo && tar -x -C /tmp/repo && cd /tmp/repo/$dir && ./$test && SH=bash kcov --include-path=/tmp/repo --exclude-line=') ;;' /out ./$test"
+}
 while read -r t; do
     d=$(dirname "$t")
     [[ $t == *.py && -f $d/Dockerfile ]] && continue
     echo "--- $t"
     case $t in
-        *.sh) (cd "$d" && "./$(basename "$t")") || bad "$t" ;;
+        test_sbs_leak.sh) ./test_sbs_leak.sh || bad "$t" ;; # drives Docker itself: on the host, no script under test
+        *.sh) shell_test "$d" "$(basename "$t")" || bad "$t" ;;
         *) pytest_cov python:3.13-alpine "$d" "$(basename "$t")" || bad "$t" ;;
     esac
 done < <(files '*test_*.sh' '*test_*.py')
+
+# 6. Every shell script (bar tests) is run by a test, every line of it.
+#    Report: .kcov/index.html.
+xml=.kcov/kcov-merged/cobertura.xml
+while read -r f; do
+    [[ $(basename "$f") == test_* ]] && continue
+    grep -qs "filename=\"$f\"" "$xml" || bad "$f: no test_*.sh runs it"
+done < <(files '*.sh')
+uncovered=$(awk -F'"' '/<class /{f=$4} /<line / && /hits="0"/ && f ~ /\.sh$/ && f !~ /(^|\/)test_/ {print f ":" $2}' "$xml" 2> /dev/null || true)
+[[ -z $uncovered ]] || bad "shell lines no test runs (file:line): ${uncovered//$'\n'/ }"
 
 ((fail == 0)) && echo "check.sh: all gates passed"
 exit "$fail"

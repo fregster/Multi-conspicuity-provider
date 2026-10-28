@@ -2,7 +2,7 @@
 # Checks stream.sh picks readsb inputs from STREAM_PROVIDERS and BEAST_PEERS.
 set -eu
 cd "$(dirname "$0")"
-run() { READSB=echo STATION_LAT=1 STATION_LON=2 STREAM_PROVIDERS=$1 BEAST_PEERS=$2 ./stream.sh 2> /dev/null | tr ' ' '\n' | grep connector= | sed 's/--net-connector=//' | tr '\n' ' '; }
+run() { READSB=echo STATION_LAT=1 STATION_LON=2 STREAM_PROVIDERS=$1 BEAST_PEERS=$2 "${SH:-sh}" ./stream.sh 2> /dev/null | tr ' ' '\n' | grep connector= | sed 's/--net-connector=//' | tr '\n' ' '; }
 check() { [ "$1" = "$2" ] || {
     echo "FAIL: got '$1' want '$2'" >&2
     exit 1
