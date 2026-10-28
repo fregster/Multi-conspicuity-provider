@@ -341,9 +341,9 @@ services:
 
   # --- Stream: de-duplicated SBS + JSON for our own projects ---------------
   # One net-only readsb (ultrafeeder's image, for its readsb binary only)
-  # merging our station with STREAM_PROVIDERS; see stream/stream.sh. Loopback
-  # ports only: stream-gate (COMPOSE_PROFILES=stream) and/or stream-tls-*
-  # (COMPOSE_PROFILES=stream-tls) publish it.
+  # merging our station with STREAM_PROVIDERS; see stream/stream.sh. Reachable
+  # only by stream-compress, which publishes it on loopback for stream-gate
+  # (COMPOSE_PROFILES=stream) and/or stream-tls-* (COMPOSE_PROFILES=stream-tls).
   stream:
     <<: *hardened
     profiles: [stream, stream-tls]
@@ -365,9 +365,29 @@ services:
       - *beast-peers
     volumes:
       - ./stream:/stream:ro
+
+  # Per-client compression of both stream ports (STREAM_COMPRESSION: none, gzip
+  # or zstd; none passes bytes through). Container ports 30003/30047 reach the
+  # stream's, published on loopback as 39203 (SBS) and 39247 (JSON) for the
+  # gates below. A setting change recreates it, dropping every client.
+  stream-compress:
+    <<: *hardened
+    profiles: [stream, stream-tls]
+    build: ./stream-compress
+    container_name: stream-compress
+    user: "65534:65534"
+    read_only: true
+    networks:
+      - adsb
+    depends_on:
+      - stream
+    environment:
+      - STREAM_COMPRESSION=${STREAM_COMPRESSION:-none}
+      - STREAM_COMPRESSION_LEVEL=${STREAM_COMPRESSION_LEVEL:-}
+      - STREAM_COMPRESSION_FLUSH_MS=${STREAM_COMPRESSION_FLUSH_MS:-100}
     ports:
-      - "127.0.0.1:39103:30003"
-      - "127.0.0.1:39147:30047"
+      - "127.0.0.1:39203:30003"
+      - "127.0.0.1:39247:30047"
 
   # Plain stream ports, no auth: host network so UFW decides who reaches them
   # (hub/ufw.sh opens them to STREAM_ALLOWED_SOURCES only). Same gate as the hub.
@@ -379,9 +399,9 @@ services:
     read_only: true
     network_mode: host
     depends_on:
-      - stream
+      - stream-compress
     environment:
-      - GATE_ROUTES=${STREAM_SBS_PORT:-30003}:open:39103,${STREAM_JSON_PORT:-30047}:open:39147
+      - GATE_ROUTES=${STREAM_SBS_PORT:-30003}:open:39203,${STREAM_JSON_PORT:-30047}:open:39247
 
   # mTLS stream ports: only clients presenting a cert signed by
   # $STREAM_TLS_DIR/ca.crt get through (--allow-all = any such cert). One
@@ -395,13 +415,13 @@ services:
     read_only: true
     network_mode: host
     depends_on:
-      - stream
+      - stream-compress
     volumes:
       - ${STREAM_TLS_DIR:-/usr/local/etc/mcp-stream-tls}:/tls:ro
     command:
       - server
       - --listen=0.0.0.0:${STREAM_TLS_SBS_PORT:-33003}
-      - --target=127.0.0.1:39103
+      - --target=127.0.0.1:39203
       - --cert=/tls/server.crt
       - --key=/tls/server.key
       - --cacert=/tls/ca.crt
@@ -413,7 +433,7 @@ services:
     command:
       - server
       - --listen=0.0.0.0:${STREAM_TLS_JSON_PORT:-33047}
-      - --target=127.0.0.1:39147
+      - --target=127.0.0.1:39247
       - --cert=/tls/server.crt
       - --key=/tls/server.key
       - --cacert=/tls/ca.crt

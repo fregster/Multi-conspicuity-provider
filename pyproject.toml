@@ -22,14 +22,17 @@ ignore = [
 # their fakes mirror real signatures and calls.
 "test_*.py" = ["S101", "PLR2004", "PT017", "E402", "SLF001", "ARG", "FBT003", "EM", "TRY003"]
 
+[tool.ruff.lint.isort]
+extra-standard-library = ["compression"] # 3.14's namespace, which target-version py313 doesn't know
+
 [tool.ruff.lint.mccabe]
 max-complexity = 10
 
 [tool.mypy]
 strict = true
-python_version = "3.13"
+python_version = "3.14" # stream-compress's image; the others run on 3.13 too
 # Tests import their service as a top-level module from its own directory.
-mypy_path = "healer:hub:ogn-bridge:scripts:status:tiles"
+mypy_path = "healer:hub:ogn-bridge:scripts:status:stream-compress:tiles"
 explicit_package_bases = true
 
 [[tool.mypy.overrides]]
