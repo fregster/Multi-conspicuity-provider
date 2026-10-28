@@ -25,7 +25,9 @@ x-feeder: &feeder
 #   SETUID       s6-applyuidgid / nginx / lighttpd dropping to a service user
 #   CHOWN        startup chowns of log/state dirs
 #   DAC_OVERRIDE piaware's root tee into its nobody-owned log dir
-#   KILL         piaware: s6 signalling non-root children (else stop hangs 10s)
+#   KILL         piaware: s6 signalling non-root children (else stop hangs 10s);
+#                radar1090: watchdog's timeout stopping its tcpdump (else hangs)
+#   NET_RAW      radar1090: watchdog's tcpdump checking packets reach 1090MHz.uk
 
 services:
   # Reverse proxy for external access to tar1090 over HTTPS. TLS is enabled
@@ -572,6 +574,32 @@ services:
       - LAT=${STATION_LAT}
       - LONG=${STATION_LON}
       - SHARECODE=${PLANEFINDER_SHARECODE}
+
+  # Feeds 1090MHz.uk from ultrafeeder's Beast output over their signed UDP
+  # "radar" protocol - no SDR of its own. Their preferred input over a Beast
+  # Reduce Plus out=, and it opens their ACL so our 1090mhz.uk in= peer works.
+  # Its watchdog's tcpdump needs NET_RAW/SETUID/SETGID/KILL; without them the
+  # check silently passes and the healthcheck never trips.
+  radar1090:
+    <<: *feeder
+    cap_add:
+      - NET_RAW
+      - SETUID
+      - SETGID
+      - KILL
+    image: ghcr.io/sdr-enthusiasts/docker-radar1090:${RADAR1090_TAG:-latest}
+    container_name: radar1090
+    labels:
+      - "autoheal=uplink"
+    networks:
+      - adsb
+    depends_on:
+      - ultrafeeder
+    environment:
+      - TZ=${TZ:-UTC}
+      - BEASTHOST=ultrafeeder
+      - RADAR1090_KEY=${RADAR1090_KEY}
+      - HMAC_KEY=${RADAR1090_HMAC_KEY:-}
 
   # Puts FLARM/OGN traffic on tar1090 via ultrafeeder's SBS input: our own SDR
   # (ogn-decode logs in here as its "APRS server", so it works with no internet;

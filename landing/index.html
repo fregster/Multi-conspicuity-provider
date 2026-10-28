@@ -61,7 +61,7 @@
 // Renders /status.json (status/status.py). Dedicated-client feeders' Docker
 // healthchecks check their own uplink, so container health = feed health.
 const FEEDERS = { piaware: "FlightAware", fr24feed: "FlightRadar24", radarbox: "RadarBox", opensky: "OpenSky",
-                  planefinder: "PlaneFinder", adsbhub: "ADSBHub" };
+                  planefinder: "PlaneFinder", adsbhub: "ADSBHub", radar1090: "1090MHz.uk" };
 
 const ago = s => s == null ? "never" : s < 120 ? `${s}s ago` : s < 7200 ? `${Math.round(s / 60)}m ago` : `${Math.round(s / 3600)}h ago`;
 const dur = s => s < 3600 ? `${Math.round(s / 60)}m` : s < 172800 ? `${Math.round(s / 3600)}h` : `${Math.round(s / 86400)}d`;
