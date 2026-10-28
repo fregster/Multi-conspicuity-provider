@@ -18,37 +18,18 @@ jobs:
           ./init-uuids.sh
           docker compose config >/dev/null
 
-  build-images:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - run: docker build ./ogn --build-arg BINARY=ogn-rf -t ogn-rf-ci
-      - run: docker build ./ogn --build-arg BINARY=ogn-decode -t ogn-decode-ci
-      - run: docker build ./ogn-bridge -t ogn-bridge-ci
-      - run: docker build ./status -t status-ci
-      - run: docker build ./healer -t healer-ci
-      - name: Bridge tests
-        run: docker run --rm -v "$PWD/ogn-bridge:/t:ro" -w /t --entrypoint python3 ogn-bridge-ci test_bridge.py
-      - name: Status tests
-        run: docker run --rm -v "$PWD/status:/t:ro" -w /t --entrypoint python3 status-ci test_status.py
-      - name: Healer tests
-        run: docker run --rm -v "$PWD/healer:/t:ro" -w /t --entrypoint python3 healer-ci test_healer.py
-      - name: Offline tiles tests
-        run: docker run --rm -v "$PWD/tiles:/t:ro" -w /t --entrypoint python3 status-ci test_offline_tiles.py
-
-  shellcheck:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - run: shellcheck deploy.sh init-uuids.sh harden-host.sh systemd/install.sh systemd/net-watchdog.sh ogn/entrypoint.sh
-
-  ruff:
+  # File types, ruff.toml + test per Python dir, shellcheck, ruff, every image
+  # built, and every test_*.sh / test_*.py run (Python ones inside their
+  # service's image) - all discovered by check.sh, so new files are covered
+  # without editing this workflow.
+  check:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - run: pip install --only-binary ':all:' ruff==0.16.8
-      - run: ruff check ogn-bridge/ status/ healer/ tiles/
-      - run: ruff format --check ogn-bridge/ status/ healer/ tiles/
+      - run: ./check.sh
+      # ogn builds two images from one Dockerfile; check.sh covers the default.
+      - run: docker build ./ogn --build-arg BINARY=ogn-decode -t ogn-decode-ci
 
   hadolint:
     runs-on: ubuntu-latest
@@ -56,19 +37,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: hadolint/hadolint-action@54c9adbab1582c2ef04b2016b760714a4bfde3cf # v3.1.0
         with:
-          dockerfile: ogn/Dockerfile
-          config: .hadolint.yaml
-      - uses: hadolint/hadolint-action@54c9adbab1582c2ef04b2016b760714a4bfde3cf # v3.1.0
-        with:
-          dockerfile: ogn-bridge/Dockerfile
-          config: .hadolint.yaml
-      - uses: hadolint/hadolint-action@54c9adbab1582c2ef04b2016b760714a4bfde3cf # v3.1.0
-        with:
-          dockerfile: status/Dockerfile
-          config: .hadolint.yaml
-      - uses: hadolint/hadolint-action@54c9adbab1582c2ef04b2016b760714a4bfde3cf # v3.1.0
-        with:
-          dockerfile: healer/Dockerfile
+          recursive: true
           config: .hadolint.yaml
 
   actionlint:

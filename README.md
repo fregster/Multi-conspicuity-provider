@@ -58,6 +58,16 @@ OGN APRS-IS (network-wide, when online) ------------------> ogn-bridge (local SD
 - One RTL-SDR per frequency you want to receive (1090MHz for ADS-B, 868.8MHz for FLARM/OGN). A single dongle can run ADS-B-only until a second is added.
 - Docker + Docker Compose on the host (a Raspberry Pi 5 running Debian is the reference target).
 
+## Checks
+
+`./check.sh` runs every code-standard and test gate, and CI runs the same script. Everything is discovered from the repo:
+- shellcheck on every `*.sh`, and ruff (pinned in CI) on every Python file;
+- every image is built; each service's `test_*.py` runs inside its image, and every other `test_*.sh` / `test_*.py` runs on the host;
+- every Python directory needs its own `ruff.toml` and a `test_*.py`;
+- any file type with no checker fails until one is added, or until it's listed in `check.sh` as needing none.
+
+CI also runs hadolint on every Dockerfile, actionlint, `docker compose config` and gitleaks.
+
 ## Setup
 
 1. `cp .env.example .env`, fill in your station's coordinates and each network's API key, then run `./init-uuids.sh` to generate the per-aggregator UUIDs (Compose refuses to start while any is blank). Register `ADSBLOL_UUID` at https://adsb.lol/claim if you want adsb.lol stats.
