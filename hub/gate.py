@@ -125,7 +125,7 @@ def main() -> None:
     log(f"UUID check {'on: ' + str(len(ALLOWED)) + ' allowed' if ALLOWED else 'off'}")
     threads = []
     for port, kind, upstream in routes(os.environ):
-        srv = socket.create_server(("0.0.0.0", port))  # noqa: S104 - public ports, limited by UFW
+        srv = socket.create_server(("0.0.0.0", port))  # noqa: S104  # public ports, limited by UFW
         log(f"{kind}: :{port} -> {upstream[0]}:{upstream[1]}")
         threads.append(threading.Thread(target=serve, args=(srv, kind, upstream), daemon=True))
         threads[-1].start()

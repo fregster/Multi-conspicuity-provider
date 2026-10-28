@@ -27,7 +27,7 @@ jobs:
         with:
           path: ~/.cache/pre-commit
           key: pre-commit-${{ hashFiles('.pre-commit-config.yaml') }}
-      - run: pip install pre-commit==4.5.1
+      - run: pip install --only-binary ':all:' pre-commit==4.5.1
       - run: pre-commit run --all-files --show-diff-on-failure
 
   # The push stage: every image built, every test run under coverage - all

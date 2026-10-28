@@ -76,6 +76,13 @@ repos:
 
   - repo: local
     hooks:
+      - id: eslint
+        name: eslint (inline JS in HTML, and its config)
+        entry: eslint --max-warnings 0
+        language: node
+        language_version: 22.20.0
+        additional_dependencies: [eslint@10.13.0, "@eslint/js@10.0.1", eslint-plugin-html@8.2.1, globals@17.13.0]
+        types_or: [html, javascript]
       - id: size-caps
         name: size caps (300-line files, 50-line shell functions)
         entry: python3 scripts/check_size.py

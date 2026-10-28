@@ -86,7 +86,7 @@ def main() -> None:
                 log(f"{name} unhealthy - restarting")
                 last[name] = time.monotonic()
                 restart(cid)
-        except Exception as e:  # noqa: BLE001 - keep looping through proxy/daemon hiccups
+        except Exception as e:  # noqa: BLE001  # keep looping through proxy/daemon hiccups
             log(f"check failed: {e}")
         time.sleep(INTERVAL_S)
 

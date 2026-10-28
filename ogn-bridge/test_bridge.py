@@ -77,8 +77,8 @@ class FakeUp:
 
 
 # ogn-decode reconnects: the old relay exits after the new one is up, uplink must stay connected
-mock.patch.object(socket, "create_connection", lambda *a, **k: FakeUp()).start()
-mock.patch.object(queue.Queue, "get", lambda self, timeout: None).start()  # no 5s wait per loop
+mock.patch.object(socket, "create_connection", return_value=FakeUp()).start()
+mock.patch.object(queue.Queue, "get", side_effect=queue.Empty).start()  # no 5s wait per loop
 old, new = threading.Event(), threading.Event()
 for stop in (old, new):
     q: queue.Queue[str] = queue.Queue()

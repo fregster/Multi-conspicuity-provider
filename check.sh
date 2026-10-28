@@ -18,9 +18,9 @@ files() { git ls-files --cached --others --exclude-standard "$@"; }
 # 1. Every file type must have a checker (or be listed as needing none).
 while read -r f; do
     case $f in
-        *.sh | *.py | */Dockerfile | *.md | *.html) ;; # linted on commit, tested below
-        *.yml | *.yaml | *.toml) ;;                    # yamllint/actionlint/check-toml on commit
-        .editorconfig | .shellcheckrc) ;;              # tool configs, read by the linters
+        *.sh | *.py | */Dockerfile | *.md | *.html | *.cjs) ;; # linted on commit, tested below
+        *.yml | *.yaml | *.toml) ;;                            # yamllint/actionlint/check-toml on commit
+        .editorconfig | .shellcheckrc) ;;                      # tool configs, read by the linters
         # No checker: env template, ignore list, config templates, systemd/udev/journald units.
         .env.example | .gitignore | *.template | *.service | *.timer | *.rules | *.conf) ;;
         *) bad "$f: no checker for this file type - add one, or list it here as needing none" ;;
@@ -34,13 +34,13 @@ done < <(files '*.py' | xargs -n1 dirname | sort -u)
 
 # 3. Python tests run under coverage (branch, settings in pyproject.toml) inside
 #    an image: their service's own, so they test the Python and packages it ships.
-pytest_cov() { # image dir test
-    local user
-    user=$(docker inspect -f '{{.Config.User}}' "$1")
-    printf 'FROM %s\nUSER root\nRUN pip install --no-cache-dir coverage==7.13.4\nUSER %s\n' "$1" "${user:-root}" |
-        docker build -q -t "$1-cov" - > /dev/null
-    docker run --rm -v "$PWD:/repo:ro" -w "/repo/$2" -e COVERAGE_FILE=/tmp/.coverage --entrypoint sh "$1-cov" \
-        -c "coverage run --rcfile=/repo/pyproject.toml $3 && coverage report --rcfile=/repo/pyproject.toml"
+pytest_cov() {
+    local image=$1 dir=$2 test=$3 user
+    user=$(docker inspect -f '{{.Config.User}}' "$image")
+    printf 'FROM %s\nUSER root\nRUN pip install --no-cache-dir coverage==7.13.4\nUSER %s\n' "$image" "${user:-root}" |
+        docker build -q -t "$image-cov" - > /dev/null
+    docker run --rm -v "$PWD:/repo:ro" -w "/repo/$dir" -e COVERAGE_FILE=/tmp/.coverage --entrypoint sh "$image-cov" \
+        -c "coverage run --rcfile=/repo/pyproject.toml $test && coverage report --rcfile=/repo/pyproject.toml"
 }
 
 # 4. Build every image, and run its directory's Python tests in it.

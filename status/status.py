@@ -108,7 +108,7 @@ def remote() -> list[dict[str, Any]]:
 def safe[T](fn: Callable[[], T]) -> T | None:
     try:
         return fn()
-    except Exception:  # noqa: BLE001 - one unreachable source must not blank the whole page
+    except Exception:  # noqa: BLE001  # one unreachable source must not blank the whole page
         return None
 
 

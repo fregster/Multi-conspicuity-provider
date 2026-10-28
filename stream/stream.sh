@@ -12,8 +12,9 @@
 set -eu
 providers=",${STREAM_PROVIDERS:-},"
 want() {
+    name=$1
     case $providers in
-        *,all,* | *,"$1",*) return 0 ;;
+        *,all,* | *,"$name",*) return 0 ;;
         *) return 1 ;;
     esac
 }

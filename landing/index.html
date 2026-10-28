@@ -141,27 +141,52 @@
         radar1090: "1090MHz.uk",
       };
 
-      const ago = (s) =>
-        s == null
-          ? "never"
-          : s < 120
-            ? `${s}s ago`
-            : s < 7200
-              ? `${Math.round(s / 60)}m ago`
-              : `${Math.round(s / 3600)}h ago`;
-      const dur = (s) =>
-        s < 3600
-          ? `${Math.round(s / 60)}m`
-          : s < 172800
-            ? `${Math.round(s / 3600)}h`
-            : `${Math.round(s / 86400)}d`;
+      function ago(s) {
+        if (s == null) return "never";
+        if (s < 120) return `${s}s ago`;
+        if (s < 7200) return `${Math.round(s / 60)}m ago`;
+        return `${Math.round(s / 3600)}h ago`;
+      }
+      function dur(s) {
+        if (s < 3600) return `${Math.round(s / 60)}m`;
+        if (s < 172800) return `${Math.round(s / 3600)}h`;
+        return `${Math.round(s / 86400)}d`;
+      }
       // Running with no healthcheck (ogn-*, traefik) counts as ok; "(health: starting)" as warn.
-      const health = (st) =>
-        /unhealthy|^Exited|^Dead|Restarting|^Created/i.test(st)
-          ? "bad"
-          : /starting/.test(st)
-            ? "warn"
-            : "ok";
+      function health(st) {
+        if (/unhealthy|^Exited|^Dead|Restarting|^Created/i.test(st))
+          return "bad";
+        if (/starting/.test(st)) return "warn";
+        return "ok";
+      }
+      function mlatPart(m) {
+        if (m.age_s == null) return ["warn", "MLAT no sync stats"];
+        if (m.age_s > 300) return ["bad", `MLAT stats stale ${ago(m.age_s)}`];
+        return ["ok", `MLAT ${m.peers} peers`];
+      }
+      // What the aggregator's own API says it receives from our IP (only some have one).
+      function remotePart(r) {
+        if (r.beast == null) return ["warn", "server check failed"];
+        const sees =
+          [r.beast && "Beast", r.mlat && "MLAT"].filter(Boolean).join("+") ||
+          "nothing";
+        let level = "bad";
+        if (r.beast) level = r.mlat ? "ok" : "warn";
+        return [level, `server sees ${sees}`];
+      }
+      // The SBS link to tar1090 opens on the first aircraft, so "never connected" is just a quiet sky.
+      function sbsRow(o) {
+        const name = "Local OGN \u2192 tar1090";
+        if (o.connected.sbs)
+          return ["ok", name, `last aircraft ${ago(o.age_s.local_to_tar1090)}`];
+        if (
+          o.age_s.local_to_tar1090 == null &&
+          o.age_s.network_to_tar1090 == null
+        ) {
+          return ["warn", name, "no aircraft yet"];
+        }
+        return ["bad", name, "tar1090 SBS input unreachable"];
+      }
 
       function fill(id, rows) {
         document.getElementById(id).replaceChildren(
@@ -179,6 +204,86 @@
         );
       }
 
+      const na = (what) => [["bad", what, "status source unreachable"]];
+      const worst = (parts) =>
+        ["bad", "warn", "ok"].find((l) => parts.some(([p]) => p === l));
+      // ultrafeeder's built-in aggregators, grouped by domain (feed1.adsbexchange.com + feed.adsbexchange.com)
+      const site = (h) => h.split(".").slice(-2).join(".");
+
+      function aggregatorRows(s) {
+        if (!s.beast) return na("ultrafeeder aggregators");
+        const aggs = {};
+        const add = (agg, part) => {
+          aggs[agg] ??= [];
+          aggs[agg].push(part);
+        };
+        for (const b of s.beast) {
+          add(
+            site(b.host),
+            b.up_s > 0
+              ? ["ok", `Beast up ${dur(b.up_s)}`]
+              : ["bad", "Beast down"],
+          );
+        }
+        for (const m of s.mlat || []) add(site(m.host), mlatPart(m));
+        for (const r of s.remote || []) add(r.site, remotePart(r));
+        return Object.entries(aggs).map(([a, parts]) => [
+          worst(parts),
+          a,
+          parts.map((p) => p[1]).join(", "),
+        ]);
+      }
+
+      function feederRows(containers) {
+        const byName = Object.fromEntries(
+          (containers || []).map((c) => [c.name, c]),
+        );
+        const missing = containers ? "container missing" : "unknown";
+        return Object.entries(FEEDERS).map(([c, label]) => {
+          const row = byName[c];
+          return row
+            ? [health(row.status), label, row.status]
+            : ["bad", label, missing];
+        });
+      }
+
+      function ognRows(o) {
+        if (!o) return na("ogn-bridge");
+        const decoding = o.connected.decoder && o.age_s.decoder_rx < 600;
+        const networkUp = o.age_s.network_rx < 120;
+        return [
+          [
+            decoding ? "ok" : "bad",
+            "Local receiver (ogn-rf \u2192 ogn-decode)",
+            o.connected.decoder
+              ? `data ${ago(o.age_s.decoder_rx)}`
+              : "ogn-decode not connected to bridge",
+          ],
+          sbsRow(o),
+          [
+            networkUp ? "ok" : "warn",
+            "OGN network \u2192 tar1090",
+            networkUp
+              ? `last aircraft ${ago(o.age_s.network_to_tar1090)}`
+              : `no APRS-IS data ${ago(o.age_s.network_rx)} (offline?)`,
+          ],
+          [
+            o.connected.uplink ? "ok" : "warn",
+            "Upload to aprs.glidernet.org",
+            o.connected.uplink
+              ? `last sent ${ago(o.age_s.uplink_tx)}`
+              : "not connected (offline?)",
+          ],
+        ];
+      }
+
+      function containerRows(containers) {
+        if (!containers) return na("Docker");
+        return containers
+          .sort((a, b) => a.name.localeCompare(b.name))
+          .map((c) => [health(c.status), c.name, c.status]);
+      }
+
       async function refresh() {
         let s;
         try {
@@ -188,110 +293,9 @@
             `Status unavailable (${e.message}) - retrying`;
           return;
         }
-        const na = (what) => [["bad", what, "status source unreachable"]];
-        const byName = Object.fromEntries(
-          (s.containers || []).map((c) => [c.name, c]),
-        );
-
-        // ultrafeeder's built-in aggregators, grouped by domain (feed1.adsbexchange.com + feed.adsbexchange.com)
-        const site = (h) => h.split(".").slice(-2).join(".");
-        const aggs = {};
-        for (const b of s.beast || [])
-          (aggs[site(b.host)] ??= []).push(
-            b.up_s > 0
-              ? ["ok", `Beast up ${dur(b.up_s)}`]
-              : ["bad", "Beast down"],
-          );
-        for (const m of s.mlat || [])
-          (aggs[site(m.host)] ??= []).push(
-            m.age_s == null
-              ? ["warn", "MLAT no sync stats"]
-              : m.age_s > 300
-                ? ["bad", `MLAT stats stale ${ago(m.age_s)}`]
-                : ["ok", `MLAT ${m.peers} peers`],
-          );
-        // What the aggregator's own API says it receives from our IP (only some have one).
-        for (const r of s.remote || [])
-          (aggs[r.site] ??= []).push(
-            r.beast == null
-              ? ["warn", "server check failed"]
-              : [
-                  r.beast ? (r.mlat ? "ok" : "warn") : "bad",
-                  `server sees ${[r.beast && "Beast", r.mlat && "MLAT"].filter(Boolean).join("+") || "nothing"}`,
-                ],
-          );
-        const worst = (parts) =>
-          ["bad", "warn", "ok"].find((l) => parts.some(([p]) => p === l));
-        fill("adsb", [
-          ...(s.beast
-            ? Object.entries(aggs).map(([a, parts]) => [
-                worst(parts),
-                a,
-                parts.map((p) => p[1]).join(", "),
-              ])
-            : na("ultrafeeder aggregators")),
-          ...Object.entries(FEEDERS).map(([c, label]) =>
-            byName[c]
-              ? [health(byName[c].status), label, byName[c].status]
-              : ["bad", label, s.containers ? "container missing" : "unknown"],
-          ),
-        ]);
-
-        const o = s.ogn;
-        fill(
-          "ogn",
-          o
-            ? [
-                [
-                  o.connected.decoder && o.age_s.decoder_rx < 600
-                    ? "ok"
-                    : "bad",
-                  "Local receiver (ogn-rf \u2192 ogn-decode)",
-                  o.connected.decoder
-                    ? `data ${ago(o.age_s.decoder_rx)}`
-                    : "ogn-decode not connected to bridge",
-                ],
-                // The SBS link to tar1090 opens on the first aircraft, so "never connected" is just a quiet sky.
-                o.connected.sbs
-                  ? [
-                      "ok",
-                      "Local OGN \u2192 tar1090",
-                      `last aircraft ${ago(o.age_s.local_to_tar1090)}`,
-                    ]
-                  : o.age_s.local_to_tar1090 == null &&
-                      o.age_s.network_to_tar1090 == null
-                    ? ["warn", "Local OGN \u2192 tar1090", "no aircraft yet"]
-                    : [
-                        "bad",
-                        "Local OGN \u2192 tar1090",
-                        "tar1090 SBS input unreachable",
-                      ],
-                [
-                  o.age_s.network_rx < 120 ? "ok" : "warn",
-                  "OGN network \u2192 tar1090",
-                  o.age_s.network_rx < 120
-                    ? `last aircraft ${ago(o.age_s.network_to_tar1090)}`
-                    : `no APRS-IS data ${ago(o.age_s.network_rx)} (offline?)`,
-                ],
-                [
-                  o.connected.uplink ? "ok" : "warn",
-                  "Upload to aprs.glidernet.org",
-                  o.connected.uplink
-                    ? `last sent ${ago(o.age_s.uplink_tx)}`
-                    : "not connected (offline?)",
-                ],
-              ]
-            : na("ogn-bridge"),
-        );
-
-        fill(
-          "containers",
-          s.containers
-            ? s.containers
-                .sort((a, b) => a.name.localeCompare(b.name))
-                .map((c) => [health(c.status), c.name, c.status])
-            : na("Docker"),
-        );
+        fill("adsb", [...aggregatorRows(s), ...feederRows(s.containers)]);
+        fill("ogn", ognRows(s.ogn));
+        fill("containers", containerRows(s.containers));
         document.getElementById("updated").textContent =
           `Updated ${new Date().toLocaleTimeString()}`;
       }

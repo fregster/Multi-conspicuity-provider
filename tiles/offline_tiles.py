@@ -135,6 +135,8 @@ def main(argv: Sequence[str] | None = None) -> None:
     deep = range(PACK_MAX_ZOOM + 1, a.bbox_zoom + 1)
     if deep and not a.tile_url:
         p.error(f"--bbox-zoom above {PACK_MAX_ZOOM} needs --tile-url")
+    if a.tile_url and not a.tile_url.startswith("https://"):
+        p.error("--tile-url must be an https:// URL")
     if a.tile_url and "openstreetmap.org" in a.tile_url:
         p.error("OSM's tile servers forbid bulk/offline downloads - use a provider that allows it")
     count = sum((x1 - x0 + 1) * (y1 - y0 + 1) for x0, x1, y0, y1 in (box(bbox, z) for z in deep))

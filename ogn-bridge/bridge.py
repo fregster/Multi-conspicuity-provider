@@ -121,7 +121,7 @@ def sbs_send(line: str) -> bool:
 outputs: dict[bool, set[socket.socket]] = {True: set(), False: set()}  # local? -> connected readers
 
 
-def serve_output(local: bool) -> None:  # noqa: FBT001 - the key of OUT_PORTS
+def serve_output(local: bool) -> None:  # noqa: FBT001  # the key of OUT_PORTS
     srv = socket.create_server(("", OUT_PORTS[local]))
     while True:
         conn, _ = srv.accept()
@@ -129,7 +129,7 @@ def serve_output(local: bool) -> None:  # noqa: FBT001 - the key of OUT_PORTS
         outputs[local].add(conn)
 
 
-def broadcast(line: str, local: bool) -> None:  # noqa: FBT001 - the key of outputs
+def broadcast(line: str, local: bool) -> None:  # noqa: FBT001  # the key of outputs
     for conn in list(outputs[local]):
         try:
             conn.sendall((line + "\r\n").encode())
@@ -180,7 +180,7 @@ last_local: dict[str, float] = {}  # address -> monotonic time last heard by our
 def process_beacon(raw_message: str, *, local: bool) -> None:
     try:
         beacon = parse(raw_message)
-    except Exception:  # noqa: BLE001 - AprsParseError or anything odd in a line from the wire
+    except Exception:  # noqa: BLE001  # AprsParseError or anything odd in a line from the wire
         return
     line = to_sbs(beacon)
     if not line:
@@ -200,6 +200,18 @@ class ClosedByServerError(ConnectionError):
         return "closed by server"
 
 
+def relay(up: socket.socket, q: "queue.Queue[str]", stop: threading.Event) -> None:
+    """Send queued lines upstream until stop; OSError once the server goes away."""
+    while not stop.is_set():
+        with contextlib.suppress(queue.Empty):
+            up.sendall((q.get(timeout=5) + "\r\n").encode())
+            seen("uplink_tx")
+        # Drain server comments so its send buffer never stalls; b"" = closed.
+        with contextlib.suppress(BlockingIOError):
+            if not up.recv(4096):
+                raise ClosedByServerError
+
+
 def relay_upstream(q: "queue.Queue[str]", login: str, stop: threading.Event) -> None:
     """Forward what ogn-decode sends to the real OGN network; reconnects forever.
     Lines queued while offline are dropped, not replayed as stale positions.
@@ -214,18 +226,7 @@ def relay_upstream(q: "queue.Queue[str]", login: str, stop: threading.Event) -> 
             # 5s after the new one connects and would otherwise clear its flag.
             connected["uplink"] += 1
             try:
-                while not stop.is_set():
-                    try:
-                        line: str | None = q.get(timeout=5)
-                    except queue.Empty:
-                        line = None
-                    if line:
-                        up.sendall((line + "\r\n").encode())
-                        seen("uplink_tx")
-                    # Drain server comments so its send buffer never stalls; b"" = closed.
-                    with contextlib.suppress(BlockingIOError):
-                        if not up.recv(4096):
-                            raise ClosedByServerError
+                relay(up, q, stop)
             finally:
                 up.close()
                 connected["uplink"] -= 1
@@ -312,7 +313,7 @@ def run_network_feed() -> None:
             client.connect()
             log.info("Connected to OGN APRS-IS with filter: %s", aprs_filter)
             client.run(callback=on_network_line, autoreconnect=True)
-        except Exception as e:  # noqa: BLE001 - no internet is the normal case at an offline airfield
+        except Exception as e:  # noqa: BLE001  # no internet is the normal case at an offline airfield
             log.warning("OGN network unavailable (%s), retrying in 30s", e)
             time.sleep(30)
 
