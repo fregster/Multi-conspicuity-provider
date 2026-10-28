@@ -53,13 +53,16 @@ def through(kind: str, hello: bytes, *, eof: bool = False, upstream: gate.Upstre
         return b""
 
 
-assert through("beast", BEAST + b"data") == b"reply" and got[-1].startswith(BEAST)
-assert through("mlat", MLAT) == b"reply" and got[-1] == MLAT
+assert through("beast", BEAST + b"data") == b"reply"
+assert got[-1].startswith(BEAST)
+assert through("mlat", MLAT) == b"reply"
+assert got[-1] == MLAT
 n = len(got)
 assert through("beast", BEAST.replace(b"1111", b"9999", 1)) == b""  # unknown UUID: dropped
 assert through("mlat", b'{"uuid": "nope"}\n') == b""
 assert len(got) == n  # nothing reached upstream
-assert through("open", b"x") == b"reply" and got[-1] == b"x"  # Beast output: not checked
+assert through("open", b"x") == b"reply"
+assert got[-1] == b"x"
 assert through("beast", BEAST[:10], eof=True) == b""  # hung up mid-hello: rejected
 assert len(got) == n + 1
 
@@ -73,7 +76,8 @@ src, dst = mock.Mock(spec=socket.socket), mock.Mock(spec=socket.socket)
 src.recv.side_effect = ConnectionResetError
 dst.shutdown.side_effect = OSError  # already gone: still closed
 gate.pipe(src, dst)
-assert src.close.called and dst.close.called
+assert src.close.called
+assert dst.close.called
 
 # main(): one listener per route, each handed to serve().
 with (

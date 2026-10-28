@@ -20,7 +20,8 @@ assert tile(-0.1278, 51.5074, 10) == (511, 340)
 
 bbox = (-2.0, 51.0, 0.0, 52.0)
 x0, x1, y0, y1 = box(bbox, 10)
-assert x0 < x1 and y0 < y1
+assert x0 < x1
+assert y0 < y1
 want = keeper(bbox, 6, 10)
 assert want(3, 0, 0)  # global basemap: anywhere
 assert want(10, 511, 340)  # inside the box
@@ -134,19 +135,28 @@ for args, msg in [
     ([B, "--bbox-zoom", "14", "--tile-url", "https://t/{z}/{x}/{y}.png", "--max-tiles", "10"], "raise --max-tiles"),
 ]:
     code, err, unpacked, fetched = run(*args)
-    assert code == 2 and msg in err and not unpacked and not fetched, (args, err)
+    assert code == 2, (args, err)
+    assert msg in err, (args, err)
+    assert not unpacked, args
+    assert not fetched, args
 
 # Up to zoom 10: both packs, nothing fetched.
 code, _, unpacked, fetched = run(B)
-assert code == 0 and [c.args[0] for c in unpacked] == ["osm_tiles_0_9.tar.gz", "osm_tiles_10.tar.gz"]
-assert unpacked[0].args[1] == Path("/x") and not fetched
+assert code == 0
+assert [c.args[0] for c in unpacked] == ["osm_tiles_0_9.tar.gz", "osm_tiles_10.tar.gz"]
+assert unpacked[0].args[1] == Path("/x")
+assert not fetched
 want = unpacked[0].args[2]
-assert want(10, 511, 340) and not want(10, 0, 0)  # the box's own keeper
+assert want(10, 511, 340)
+assert not want(10, 0, 0)
 # Below zoom 10: the zoom-10 pack is skipped.
 code, _, unpacked, fetched = run(B, "--global-zoom", "4", "--bbox-zoom", "8")
-assert code == 0 and [c.args[0] for c in unpacked] == ["osm_tiles_0_9.tar.gz"] and not fetched
+assert code == 0
+assert [c.args[0] for c in unpacked] == ["osm_tiles_0_9.tar.gz"]
+assert not fetched
 # Deeper: packs, then the rest from --tile-url.
 code, _, unpacked, fetched = run(B, "--bbox-zoom", "11", "--tile-url", "https://t/{z}/{x}/{y}.png", "--delay", "0")
-assert code == 0 and len(unpacked) == 2
+assert code == 0
+assert len(unpacked) == 2
 assert fetched[0].args == ("https://t/{z}/{x}/{y}.png", Path("/x"), (-2.0, 51.0, 0.0, 52.0), range(11, 12), 0.0)
 print("ok")

@@ -116,17 +116,21 @@ assert bare.split(",")[10:14] == ["OGN", "", "", ""]  # unusable name -> OGN; un
 with mock.patch.object(socket, "create_connection", side_effect=OSError("refused")) as connect:
     assert not bridge.sbs_send("a")
     assert not bridge.sbs_send("b")  # inside the retry window: no second attempt
-    assert connect.call_count == 1 and bridge.connected["sbs"] is False
+    assert connect.call_count == 1
+    assert bridge.connected["sbs"] is False
 bridge.sbs.retry_at = 0.0
 up = fake_sock()
 with mock.patch.object(socket, "create_connection", return_value=up) as connect:
     assert bridge.sbs_send("a")
     assert bridge.sbs_send("b")  # reuses the open connection
-    assert connect.call_count == 1 and bridge.connected["sbs"] is True
+    assert connect.call_count == 1
+    assert bridge.connected["sbs"] is True
 up.sendall.assert_called_with(b"b\r\n")
 up.sendall.side_effect = OSError
 assert not bridge.sbs_send("c")  # dropped; the next line reconnects
-assert up.close.called and bridge.sbs.sock is None and bridge.connected["sbs"] is False
+assert up.close.called
+assert bridge.sbs.sock is None
+assert bridge.connected["sbs"] is False
 
 # serve_output(): each stream reader is added with a 1s send timeout.
 srv, reader = fake_sock(), fake_sock()
@@ -145,7 +149,8 @@ threading.Thread(target=http.serve_forever, daemon=True).start()
 with urllib.request.urlopen(f"http://127.0.0.1:{http.server_address[1]}/", timeout=5) as r:
     page = json.load(r)
 http.shutdown()
-assert page["connected"] == bridge.connected and page["age_s"]["uplink_tx"] == 0
+assert page["connected"] == bridge.connected
+assert page["age_s"]["uplink_tx"] == 0
 
 
 class FakeUp:
@@ -211,10 +216,13 @@ with (
     mock.patch.object(bridge, "relay", lose_link),
 ):
     bridge.relay_upstream(q, "user X pass 1", stop)
-assert q.empty() and uplinks == [1] and bridge.connected["uplink"] == 0
+assert q.empty()
+assert uplinks == [1]
+assert bridge.connected["uplink"] == 0
 up.sendall.assert_called_once_with(b"user X pass 1\r\n")
 up.settimeout.assert_called_once_with(0)
-assert up.close.called and stop.wait.call_count == 2
+assert up.close.called
+assert stop.wait.call_count == 2
 
 # login(): acknowledged with ogn-decode's callsign (OGN if it sent none), relay started.
 for line, call in [("user MYCALL pass 1", "MYCALL"), ("user", "OGN")]:
@@ -224,7 +232,8 @@ for line, call in [("user MYCALL pass 1", "MYCALL"), ("user", "OGN")]:
     deadline = time.monotonic() + 5
     while not relay_upstream.called and time.monotonic() < deadline:
         time.sleep(0.01)
-    assert relay_upstream.call_args.args[0] is lq and relay_upstream.call_args.args[1] == line
+    assert relay_upstream.call_args.args[0] is lq
+    assert relay_upstream.call_args.args[1] == line
     conn.sendall.assert_called_once_with(f"# logresp {call} verified, server OGNBRIDGE\r\n".encode())
 assert bridge.connected["decoder"] == 2
 bridge.connected["decoder"] = 0
@@ -257,11 +266,14 @@ with (
 assert [line for line, _ in logins] == ["user MYCALL pass 1"]
 pb.assert_called_once_with(LINE, local=True)
 assert [c.args[0][:8] for c in conn.sendall.call_args_list] == [b"# aprsc "] * 2
-assert logins[0][1].is_set() and conn.close.called and bridge.connected["decoder"] == 0
+assert logins[0][1].is_set()
+assert conn.close.called
+assert bridge.connected["decoder"] == 0
 conn = fake_sock()
 conn.sendall.side_effect = BrokenPipeError  # gone before the banner: no login to undo
 bridge.serve_decoder(conn)
-assert conn.close.called and bridge.connected["decoder"] == 0
+assert conn.close.called
+assert bridge.connected["decoder"] == 0
 
 # The network feed: every line counts as liveness; position lines are processed as network.
 with mock.patch.object(bridge, "process_beacon") as pb:
