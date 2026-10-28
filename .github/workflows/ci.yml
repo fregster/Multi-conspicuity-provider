@@ -27,7 +27,7 @@ jobs:
         with:
           path: ~/.cache/pre-commit
           key: pre-commit-${{ hashFiles('.pre-commit-config.yaml') }}
-      - run: pip install --only-binary ':all:' pre-commit==4.5.1
+      - run: pip install --only-binary ':all:' pre-commit==4.7.0
       - run: pre-commit run --all-files --show-diff-on-failure
 
   # The push stage: every image built, every test run under coverage - all
@@ -46,6 +46,6 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           fetch-depth: 0
-      - uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7  # v2.3.9
+      - uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e  # v3.0.0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
