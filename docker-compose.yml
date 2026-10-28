@@ -161,6 +161,13 @@ services:
       - READSB_ALT=${STATION_ALT_M}m
       - READSB_RX_LOCATION_ACCURACY=2
       - READSB_STATS_RANGE=true
+      # readsb copies everything from its SBS input (ogn-bridge's FLARM/OGN
+      # contacts) to its SBS output, which adsbhub forwards to ADSBHub as if we
+      # had received it on 1090MHz. --filter-DF drops SBS input from every
+      # network output but keeps it on the map (outputMessage() in net_io.c);
+      # listing every DF leaves real Mode S forwarding as it was. Checked by
+      # test_sbs_leak.sh.
+      - READSB_EXTRA_ARGS=--filter-DF=0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31
       # Drop decoded positions further than this (nm) - they're bogus.
       - READSB_MAX_RANGE=300
       # SD-card wear: range outlines/state written only on shutdown, graphs
