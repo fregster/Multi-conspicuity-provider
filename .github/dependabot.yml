@@ -8,3 +8,8 @@ updates:
     directory: /
     schedule:
       interval: weekly
+  # Base images are pinned by digest; this keeps the digests current.
+  - package-ecosystem: docker
+    directories: [/healer, /hub, /ogn, /ogn-bridge, /status]
+    schedule:
+      interval: weekly

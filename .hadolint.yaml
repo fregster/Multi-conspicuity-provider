@@ -1,4 +1,4 @@
-# Unpinned apt/pip packages are deliberate: the base images are tag-pinned and
+# Unpinned apt/pip packages are deliberate: the base images are digest-pinned and
 # Debian/PyPI drop old versions, so exact pins would just break rebuilds.
 ignored:
   - DL3008

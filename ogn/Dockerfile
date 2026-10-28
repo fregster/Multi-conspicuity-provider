@@ -9,7 +9,7 @@
 #   Closed-source freeware, distributed only as a precompiled binary.
 ARG BINARY=ogn-rf
 
-FROM debian:trixie-slim AS fetch
+FROM debian:trixie-slim@sha256:89c1ea91e897f0fe0a3731595330bc45b8bdef4047464a07116f891a94054b31 AS fetch
 ARG BINARY
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 RUN apt-get update && apt-get install -y --no-install-recommends wget ca-certificates && \
@@ -23,7 +23,7 @@ RUN wget --no-check-certificate -qO- http://download.glidernet.org/arm64/rtlsdr-
 RUN wget -qO /out/WW15MGH.DAC http://download.glidernet.org/common/WW15MGH.DAC && \
     echo "9dcaf4efd6857aaa2e1e2e2c574d3f5264eacf47024cdcd5291c40ddad5e5acc  /out/WW15MGH.DAC" | sha256sum -c -
 
-FROM debian:trixie-slim
+FROM debian:trixie-slim@sha256:89c1ea91e897f0fe0a3731595330bc45b8bdef4047464a07116f891a94054b31
 ARG BINARY
 ENV BINARY=${BINARY}
 # librtlsdr0 is only needed by ogn-rf (it owns the SDR) - ogn-decode just
