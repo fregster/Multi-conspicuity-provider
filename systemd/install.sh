@@ -27,10 +27,11 @@ sudo /usr/sbin/ethtool --set-eee eth0 eee off 2> /dev/null || true
 # Kernel DVB-T drivers grab the RTL-SDRs at boot, starving readsb/ogn-rf.
 # Offer to blacklist them unless something already does.
 DVB_MODS=(dvb_usb_rtl28xxu rtl2832_sdr rtl2832 rtl2830)
+ROOT=${INSTALL_TEST_ROOT:-} # test_install.sh points this at a fake /sys and /etc
 if sudo modinfo -n dvb_usb_rtl28xxu > /dev/null 2>&1 &&
-    ! grep -qsE '^\s*blacklist\s+dvb_usb_rtl28xxu\b' /etc/modprobe.d/*.conf; then
+    ! grep -qsE '^\s*blacklist\s+dvb_usb_rtl28xxu\b' "$ROOT"/etc/modprobe.d/*.conf; then
     loaded=()
-    for m in "${DVB_MODS[@]}"; do [[ -d /sys/module/$m ]] && loaded+=("$m"); done
+    for m in "${DVB_MODS[@]}"; do [[ -d $ROOT/sys/module/$m ]] && loaded+=("$m"); done
     echo "Kernel DVB drivers for RTL-SDRs are not blacklisted${loaded[*]:+ (loaded now: ${loaded[*]})}."
     echo "They can claim the SDRs at boot and stop ADS-B and FLARM receiving."
     read -r -p "Blacklist them in /etc/modprobe.d/blacklist-rtlsdr.conf? [Y/n] " ans || ans=n

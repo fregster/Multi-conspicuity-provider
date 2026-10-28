@@ -9,3 +9,6 @@
 
 # Python
 __pycache__/
+
+# check.sh's shell coverage report
+.kcov/

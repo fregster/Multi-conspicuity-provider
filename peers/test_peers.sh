@@ -2,7 +2,7 @@
 # Checks peers.sh turns BEAST_PEERS into the right ULTRAFEEDER_CONFIG entries.
 set -eu
 cd "$(dirname "$0")"
-run() { BEAST_PEER_UUID=u ULTRAFEEDER_CONFIG=$1 BEAST_PEERS=$2 ./peers.sh "$3" printenv ULTRAFEEDER_CONFIG 2> /dev/null; }
+run() { BEAST_PEER_UUID=u ULTRAFEEDER_CONFIG=$1 BEAST_PEERS=$2 "${SH:-sh}" ./peers.sh "$3" printenv ULTRAFEEDER_CONFIG 2> /dev/null; }
 check() { [ "$1" = "$2" ] || {
     echo "FAIL: got '$1' want '$2'" >&2
     exit 1
