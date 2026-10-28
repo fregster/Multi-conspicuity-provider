@@ -32,7 +32,7 @@ while read -r d; do
     compgen -G "$d/test_*.py" > /dev/null || bad "$d: Python without a test_*.py"
 done < <(files '*.py' | xargs -n1 dirname | sort -u)
 
-# 3. Python tests run under coverage (branch, settings in pyproject.toml) inside
+# 3. Python tests must cover 100% of lines and branches (pyproject.toml) inside
 #    an image: their service's own, so they test the Python and packages it ships.
 pytest_cov() {
     local image=$1 dir=$2 test=$3 user

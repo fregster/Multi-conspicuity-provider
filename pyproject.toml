@@ -20,7 +20,7 @@ ignore = [
 [tool.ruff.lint.per-file-ignores]
 # Tests are plain assert scripts run as `python3 test_x.py`, not pytest, and
 # their fakes mirror real signatures and calls.
-"test_*.py" = ["S101", "PLR2004", "PT", "E402", "SLF001", "ARG", "FBT003", "EM", "TRY003"]
+"test_*.py" = ["S101", "PLR2004", "PT017", "E402", "SLF001", "ARG", "FBT003", "EM", "TRY003"]
 
 [tool.ruff.lint.mccabe]
 max-complexity = 10
@@ -41,5 +41,8 @@ branch = true
 omit = ["test_*.py"]
 
 [tool.coverage.report]
+fail_under = 100
+# The entrypoint guard only calls main(), which the tests cover directly.
+exclude_also = ['if __name__ == "__main__":']
 show_missing = true
 skip_covered = true

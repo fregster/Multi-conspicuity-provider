@@ -78,7 +78,7 @@ Install the git hooks once per clone: `pre-commit install` (needs [pre-commit](h
   - Everything else: hadolint, yamllint, actionlint, prettier for Markdown/HTML, gitleaks and whitespace/merge-marker hygiene.
   - Size caps: no Python, shell or Dockerfile over 300 lines, and no shell function over 50.
   - Formatters fix files in place and fail the commit, so `git add` the result and commit again.
-- **On push**: [check.sh](check.sh) builds every image and runs every test. Each service's `test_*.py` runs inside its own image under branch coverage, and every other test runs from its own directory. A Python directory without a `test_*.py`, or a file type with no checker, fails until one is added (or the type is listed in `check.sh` as needing none).
+- **On push**: [check.sh](check.sh) builds every image and runs every test. Each service's `test_*.py` runs inside its own image and must cover 100% of lines and branches, and every other test runs from its own directory. A Python directory without a `test_*.py`, or a file type with no checker, fails until one is added (or the type is listed in `check.sh` as needing none).
 
 CI also runs `docker compose config` and gitleaks over the full history.
 
