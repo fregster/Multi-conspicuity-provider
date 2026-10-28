@@ -1,18 +1,30 @@
 """Run: STATION_LAT=51 STATION_LON=0 python3 test_bridge.py  (needs ogn-client)"""
 
 import os
+import queue
+import socket
+import threading
+import time
+from unittest import mock
 
 os.environ.setdefault("STATION_LAT", "51")
 os.environ.setdefault("STATION_LON", "0")
 import bridge
 
-sent = []
-bridge.sbs_send = lambda line: sent.append(line) or True
+sent: list[str] = []
+
+
+def fake_sbs_send(line: str) -> bool:
+    sent.append(line)
+    return True
+
+
+mock.patch.object(bridge, "sbs_send", fake_sbs_send).start()
 LINE = "FLRDDA5BA>APRS,TCPIP*:/074548h5111.32N/00102.04W'086/007/A=000607 !W00! id06DDA5BA -019fpm"
 OTHER = "FLR123456>OGFLR,qAS,RX:/074548h5111.32N/00102.04W'086/007/A=000607 !W00! id06123456"
 
-local_out, local_in = bridge.socket.socketpair()
-net_out, net_in = bridge.socket.socketpair()
+local_out, local_in = socket.socketpair()
+net_out, net_in = socket.socketpair()
 bridge.outputs[True].add(local_out)
 bridge.outputs[False].add(net_out)
 
@@ -51,32 +63,31 @@ assert sent[-1].split(",")[4] == "4080F6", sent[-1]
 
 
 class FakeUp:
-    def sendall(self, data):
+    def sendall(self, data: bytes) -> None:
         pass
 
-    def setblocking(self, flag):
+    def settimeout(self, value: float) -> None:
         pass
 
-    def recv(self, n):
+    def recv(self, n: int) -> bytes:
         raise BlockingIOError
 
-    def close(self):
+    def close(self) -> None:
         pass
 
 
 # ogn-decode reconnects: the old relay exits after the new one is up, uplink must stay connected
-bridge.socket.create_connection = lambda *a, **k: FakeUp()
-bridge.queue.Queue.get = lambda self, timeout: None  # no 5s wait per loop
-old, new = bridge.threading.Event(), bridge.threading.Event()
+mock.patch.object(socket, "create_connection", return_value=FakeUp()).start()
+mock.patch.object(queue.Queue, "get", side_effect=queue.Empty).start()  # no 5s wait per loop
+old, new = threading.Event(), threading.Event()
 for stop in (old, new):
-    bridge.threading.Thread(
-        target=bridge.relay_upstream, args=(bridge.queue.Queue(), "user X", stop), daemon=True
-    ).start()
-bridge.time.sleep(0.1)
+    q: queue.Queue[str] = queue.Queue()
+    threading.Thread(target=bridge.relay_upstream, args=(q, "user X", stop), daemon=True).start()
+time.sleep(0.1)
 old.set()
-bridge.time.sleep(0.1)
+time.sleep(0.1)
 assert bridge.connected["uplink"] == 1, bridge.connected
 new.set()
-bridge.time.sleep(0.1)
+time.sleep(0.1)
 assert bridge.connected["uplink"] == 0, bridge.connected
 print("ok")

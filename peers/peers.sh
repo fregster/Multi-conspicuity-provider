@@ -16,25 +16,26 @@ cfg=${ULTRAFEEDER_CONFIG:-}
 oldifs=$IFS
 IFS=';'
 for peer in ${BEAST_PEERS:-}; do
-  IFS=','
-  for field in $peer; do
-    case $field in
-      "$dir"=*:*)
-        hostport=${field#*=}
-        if [ "$dir" = out ]; then proto=beast_reduce_plus_out; else proto=beast_in; fi
-        entry="adsb,${hostport%:*},${hostport##*:},$proto,uuid=${BEAST_PEER_UUID:?}"
-        cfg=${cfg:+$cfg;}$entry
-        echo "beast peer ($dir): $entry" >&2
-        ;;
-      mlat=*:*)
-        [ "$dir" = in ] || continue
-        hostport=${field#*=}
-        entry="mlat,${hostport%:*},${hostport##*:},uuid=${BEAST_PEER_UUID:?},input_connect=ultrafeeder:30005"
-        cfg=${cfg:+$cfg;}$entry
-        echo "mlat peer: $entry" >&2
-        ;;
-    esac
-  done
+    IFS=','
+    for field in $peer; do
+        case $field in
+            "$dir"=*:*)
+                hostport=${field#*=}
+                if [ "$dir" = out ]; then proto=beast_reduce_plus_out; else proto=beast_in; fi
+                entry="adsb,${hostport%:*},${hostport##*:},$proto,uuid=${BEAST_PEER_UUID:?}"
+                cfg=${cfg:+$cfg;}$entry
+                echo "beast peer ($dir): $entry" >&2
+                ;;
+            mlat=*:*)
+                [ "$dir" = in ] || continue
+                hostport=${field#*=}
+                entry="mlat,${hostport%:*},${hostport##*:},uuid=${BEAST_PEER_UUID:?},input_connect=ultrafeeder:30005"
+                cfg=${cfg:+$cfg;}$entry
+                echo "mlat peer: $entry" >&2
+                ;;
+            *) ;; # the peer name, or its feed in the other direction
+        esac
+    done
 done
 IFS=$oldifs
 

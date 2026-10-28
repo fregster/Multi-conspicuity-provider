@@ -1,0 +1,97 @@
+# Code-quality gates. Install once per clone:
+#   pre-commit install --hook-type pre-commit --hook-type pre-push
+# Commit: format (fixing files in place), lint, type-check, size caps - no tests.
+# Push: ./check.sh - every image built, every test run under the coverage gates.
+# CI runs both stages on every file, so a skipped local hook is still caught.
+# Every tool version is pinned here, so local and CI runs agree.
+default_install_hook_types: [pre-commit, pre-push]
+default_stages: [pre-commit]
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: check-added-large-files
+      - id: check-executables-have-shebangs
+      - id: check-shebang-scripts-are-executable
+      - id: check-merge-conflict
+      - id: check-toml
+      - id: check-yaml
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+      - id: mixed-line-ending
+        args: [--fix=lf]
+
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.30.0
+    hooks:
+      - id: gitleaks
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.17.3
+    hooks:
+      - id: ruff-check
+      - id: ruff-format
+
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v2.4.0
+    hooks:
+      - id: mypy
+        pass_filenames: false  # whole tree: a test and its service are checked together
+        args: [.]
+
+  - repo: https://github.com/shellcheck-py/shellcheck-py
+    rev: v0.11.0.1-1
+    hooks:
+      - id: shellcheck
+
+  - repo: https://github.com/scop/pre-commit-shfmt
+    rev: v3.14.1-1
+    hooks:
+      - id: shfmt
+        args: [-w]  # options come from .editorconfig
+
+  - repo: https://github.com/AleksaC/hadolint-py
+    rev: v2.15.1
+    hooks:
+      - id: hadolint
+
+  - repo: https://github.com/adrienverge/yamllint
+    rev: v1.38.0
+    hooks:
+      - id: yamllint
+        args: [--strict]
+
+  - repo: https://github.com/rhysd/actionlint
+    rev: v1.7.12
+    hooks:
+      - id: actionlint
+
+  - repo: https://github.com/rbubley/mirrors-prettier
+    rev: v3.9.10
+    hooks:
+      - id: prettier
+        language_version: 22.20.0  # pinned Node, not whatever the machine has
+        types_or: [markdown, html]
+
+  - repo: local
+    hooks:
+      - id: eslint
+        name: eslint (inline JS in HTML, and its config)
+        entry: eslint --max-warnings 0
+        language: node
+        language_version: 22.20.0
+        additional_dependencies: [eslint@10.13.0, "@eslint/js@10.0.1", eslint-plugin-html@8.2.1, globals@17.13.0]
+        types_or: [html, javascript]
+      - id: size-caps
+        name: size caps (300-line files, 50-line shell functions)
+        entry: python3 scripts/check_size.py
+        language: system
+        types_or: [python, shell, dockerfile]
+      - id: check
+        name: check.sh (builds, tests, coverage)
+        entry: ./check.sh
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-push]

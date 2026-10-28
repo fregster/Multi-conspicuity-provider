@@ -2,8 +2,11 @@
 # Checks peers.sh turns BEAST_PEERS into the right ULTRAFEEDER_CONFIG entries.
 set -eu
 cd "$(dirname "$0")"
-run() { BEAST_PEER_UUID=u ULTRAFEEDER_CONFIG=$1 BEAST_PEERS=$2 ./peers.sh "$3" printenv ULTRAFEEDER_CONFIG 2>/dev/null; }
-check() { [ "$1" = "$2" ] || { echo "FAIL: got '$1' want '$2'" >&2; exit 1; }; }
+run() { BEAST_PEER_UUID=u ULTRAFEEDER_CONFIG=$1 BEAST_PEERS=$2 ./peers.sh "$3" printenv ULTRAFEEDER_CONFIG 2> /dev/null; }
+check() { [ "$1" = "$2" ] || {
+    echo "FAIL: got '$1' want '$2'" >&2
+    exit 1
+}; }
 
 peers="a,out=h1:1,in=h2:2;b,in=h3:3;c,out=h4:4"
 check "$(run base "$peers" out)" "base;adsb,h1,1,beast_reduce_plus_out,uuid=u;adsb,h4,4,beast_reduce_plus_out,uuid=u"

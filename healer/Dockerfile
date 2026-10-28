@@ -2,5 +2,5 @@
 FROM python:3.13-alpine
 COPY healer.py /healer.py
 ENV PYTHONUNBUFFERED=1
-USER nobody
+USER 65534:65534
 ENTRYPOINT ["python3", "/healer.py"]

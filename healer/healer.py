@@ -23,6 +23,7 @@ import os
 import re
 import socket
 import time
+from collections.abc import Sequence
 from urllib.parse import quote
 from urllib.request import Request, urlopen
 
@@ -35,30 +36,32 @@ UPLINKS = [(h, int(p)) for h, p in re.findall(r"(?:^|;)adsb,([^,;]+),(\d+)", os.
 FILTERS = quote(json.dumps({"health": ["unhealthy"], "label": ["autoheal"]}))
 
 
-def log(msg):
+def log(msg: str) -> None:
     print(time.strftime("%Y-%m-%d %H:%M:%S"), msg, flush=True)
 
 
-def unhealthy():
+def unhealthy() -> list[tuple[str, str, str | None]]:
     with urlopen(f"{LIST}/containers/json?filters={FILTERS}", timeout=10) as r:
         return [(c["Id"], c["Names"][0].lstrip("/"), c["Labels"].get("autoheal")) for c in json.load(r)]
 
 
-def online(uplinks=UPLINKS):
+def online(uplinks: Sequence[tuple[str, int]] = UPLINKS) -> bool:
     for host, port in uplinks:
         try:
             socket.create_connection((host, port), timeout=5).close()
-            return True
         except OSError:
             continue
+        return True
     return False
 
 
-def restart(cid):
+def restart(cid: str) -> None:
     urlopen(Request(f"{RESTART}/containers/{cid}/restart?t=30", method="POST"), timeout=90).close()
 
 
-def pick(rows, is_online, last, now):
+def pick(
+    rows: Sequence[tuple[str, str, str | None]], *, is_online: bool, last: dict[str, float], now: float
+) -> list[tuple[str, str]]:
     """Which (id, name) rows to restart this round."""
     return [
         (cid, name)
@@ -69,8 +72,8 @@ def pick(rows, is_online, last, now):
     ]
 
 
-def main():
-    last = {}
+def main() -> None:
+    last: dict[str, float] = {}
     offline_logged = False
     while True:
         try:
@@ -79,11 +82,11 @@ def main():
             if not is_online and not offline_logged:
                 log("internet unreachable - holding off restarting uplink feeders: " + ", ".join(n for _, n, _ in rows))
             offline_logged = not is_online
-            for cid, name in pick(rows, is_online, last, time.monotonic()):
+            for cid, name in pick(rows, is_online=is_online, last=last, now=time.monotonic()):
                 log(f"{name} unhealthy - restarting")
                 last[name] = time.monotonic()
                 restart(cid)
-        except Exception as e:  # noqa: BLE001 - keep looping through proxy/daemon hiccups
+        except Exception as e:  # noqa: BLE001  # keep looping through proxy/daemon hiccups
             log(f"check failed: {e}")
         time.sleep(INTERVAL_S)
 

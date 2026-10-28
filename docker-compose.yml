@@ -151,7 +151,7 @@ services:
       - "traefik.http.routers.tar1090.middlewares=tar1090-strip"
       - "traefik.http.middlewares.tar1090-strip.stripprefix.prefixes=/tar1090"
       - "traefik.http.services.tar1090.loadbalancer.server.port=80"
-      - "autoheal=local" # see healer/healer.py
+      - "autoheal=local"  # see healer/healer.py
     environment:
       - TZ=${TZ:-UTC}
       - READSB_DEVICE_TYPE=rtlsdr
@@ -315,7 +315,7 @@ services:
       - NUMEXPR_NUM_THREADS=1
       - OMP_NUM_THREADS=1
     ports:
-      - "127.0.0.1:39090:31090" # for hub-gate only
+      - "127.0.0.1:39090:31090"  # for hub-gate only
     tmpfs:
       - /run/mlat-server:uid=65534,gid=65534
       - /tmp
@@ -678,7 +678,7 @@ services:
     container_name: ogn-decode
     user: "65534:65534"
     read_only: true
-    stdin_open: true # see ogn-rf
+    stdin_open: true  # see ogn-rf
     tmpfs:
       - /ogn:uid=65534,gid=65534
     networks:
@@ -739,7 +739,7 @@ services:
       - socket-proxy
       - socket-proxy-restart
     networks:
-      - adsb # egress for the online check
+      - adsb  # egress for the online check
       - docker-api
       - docker-restart
     environment:

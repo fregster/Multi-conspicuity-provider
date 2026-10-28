@@ -16,25 +16,30 @@ UUID isn't listed are dropped before reaching the service; empty = no check.
 A UUID is only an identifier sent in clear, not a secret. Stdlib only.
 """
 
+import contextlib
 import json
 import os
 import socket
 import threading
 import time
+from collections.abc import Callable, Mapping
+
+Upstream = tuple[str, int]
 
 ALLOWED = {u.strip().lower() for u in os.environ.get("HUB_ALLOWED_UUIDS", "").split(",") if u.strip()}
 HELLO_TIMEOUT_S = 15
+BEAST_HELLO_LEN = 38  # 0x1A 0xE4 + the 36-char UUID
 
 
-def log(msg):
+def log(msg: str) -> None:
     print(time.strftime("%Y-%m-%d %H:%M:%S"), msg, flush=True)
 
 
-def beast_uuid(head):
-    return head[2:38].decode("ascii", "replace").lower() if head[:2] == b"\x1a\xe4" else None
+def beast_uuid(head: bytes) -> str | None:
+    return head[2:BEAST_HELLO_LEN].decode("ascii", "replace").lower() if head[:2] == b"\x1a\xe4" else None
 
 
-def mlat_uuid(head):
+def mlat_uuid(head: bytes) -> str | None:
     try:
         return str(json.loads(head.split(b"\n", 1)[0])["uuid"]).lower()
     except (ValueError, KeyError, TypeError):
@@ -42,13 +47,13 @@ def mlat_uuid(head):
 
 
 # kind: (bytes the hello needs, uuid parser)
-CHECKS = {
-    "beast": (lambda buf: len(buf) >= 38, beast_uuid),
+CHECKS: dict[str, tuple[Callable[[bytes], bool], Callable[[bytes], str | None]]] = {
+    "beast": (lambda buf: len(buf) >= BEAST_HELLO_LEN, beast_uuid),
     "mlat": (lambda buf: b"\n" in buf, mlat_uuid),
 }
 
 
-def read_hello(sock, complete, limit=4096):
+def read_hello(sock: socket.socket, complete: Callable[[bytes], bool], limit: int = 4096) -> bytes:
     buf = b""
     while not complete(buf) and len(buf) < limit:
         chunk = sock.recv(limit - len(buf))
@@ -58,7 +63,7 @@ def read_hello(sock, complete, limit=4096):
     return buf
 
 
-def pipe(src, dst):
+def pipe(src: socket.socket, dst: socket.socket) -> None:
     try:
         while data := src.recv(65536):
             dst.sendall(data)
@@ -66,14 +71,12 @@ def pipe(src, dst):
         pass
     finally:
         for s in (src, dst):
-            try:
+            with contextlib.suppress(OSError):
                 s.shutdown(socket.SHUT_RDWR)
-            except OSError:
-                pass
             s.close()
 
 
-def handle(client, addr, kind, upstream):
+def handle(client: socket.socket, addr: tuple[str, int], kind: str, upstream: Upstream) -> None:
     head = b""
     try:
         client.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
@@ -99,13 +102,13 @@ def handle(client, addr, kind, upstream):
     pipe(client, up)
 
 
-def serve(srv, kind, upstream):
+def serve(srv: socket.socket, kind: str, upstream: Upstream) -> None:
     while True:
         client, addr = srv.accept()
         threading.Thread(target=handle, args=(client, addr, kind, upstream), daemon=True).start()
 
 
-def routes(env):
+def routes(env: Mapping[str, str]) -> list[tuple[int, str, Upstream]]:
     """GATE_ROUTES "listen:kind:upstream,..." (stream-gate), else the hub's three.
     Upstreams are the loopback ports published in docker-compose.yml."""
     spec = env.get("GATE_ROUTES") or ",".join(
@@ -118,11 +121,11 @@ def routes(env):
     return [(int(p), k, ("127.0.0.1", int(u))) for p, k, u in (r.split(":") for r in spec.split(","))]
 
 
-def main():
+def main() -> None:
     log(f"UUID check {'on: ' + str(len(ALLOWED)) + ' allowed' if ALLOWED else 'off'}")
     threads = []
     for port, kind, upstream in routes(os.environ):
-        srv = socket.create_server(("0.0.0.0", port))
+        srv = socket.create_server(("0.0.0.0", port))  # noqa: S104  # public ports, limited by UFW
         log(f"{kind}: :{port} -> {upstream[0]}:{upstream[1]}")
         threads.append(threading.Thread(target=serve, args=(srv, kind, upstream), daemon=True))
         threads[-1].start()

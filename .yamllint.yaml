@@ -1,0 +1,10 @@
+# Every rule is an error: warnings get ignored.
+extends: default
+
+rules:
+  document-start: disable  # compose and workflows don't use ---
+  line-length:
+    max: 120
+  truthy:
+    allowed-values: ["true", "false"]
+    check-keys: false  # GitHub Actions' `on:` key

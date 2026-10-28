@@ -10,12 +10,12 @@ assert healer.UPLINKS == [("in.adsb.lol", 30004)]
 
 rows = [("a", "ultrafeeder", "local"), ("b", "fr24feed", "uplink"), ("c", "other", "bogus")]
 # Offline: only the local-health container.
-assert healer.pick(rows, False, {}, 10_000) == [("a", "ultrafeeder")]
+assert healer.pick(rows, is_online=False, last={}, now=10_000) == [("a", "ultrafeeder")]
 # Online: both, but never an unknown label value.
-assert healer.pick(rows, True, {}, 10_000) == [("a", "ultrafeeder"), ("b", "fr24feed")]
+assert healer.pick(rows, is_online=True, last={}, now=10_000) == [("a", "ultrafeeder"), ("b", "fr24feed")]
 # Restarted recently: wait out MIN_GAP_S.
-assert healer.pick(rows, True, {"fr24feed": 10_000 - 60}, 10_000) == [("a", "ultrafeeder")]
-assert healer.pick(rows, True, {"fr24feed": 10_000 - healer.MIN_GAP_S}, 10_000) == [
+assert healer.pick(rows, is_online=True, last={"fr24feed": 10_000 - 60}, now=10_000) == [("a", "ultrafeeder")]
+assert healer.pick(rows, is_online=True, last={"fr24feed": 10_000 - healer.MIN_GAP_S}, now=10_000) == [
     ("a", "ultrafeeder"),
     ("b", "fr24feed"),
 ]
