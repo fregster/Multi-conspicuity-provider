@@ -23,10 +23,12 @@ run() {
     PATH="$tmp/bin:$PATH" ./ufw.sh > /dev/null 2>&1 # no .env: grep says so
     grep -v '^ufw status' "$tmp/calls" || true
 }
-check() { [[ "$1" == "$2" ]] || {
-    echo "FAIL: got '$1' want '$2'" >&2
+check() {
+    local got=$1 want=$2
+    [[ $got == "$want" ]] && return
+    echo "FAIL: got '$got' want '$want'" >&2
     exit 1
-}; }
+}
 
 # No .env: no profiles, so it only removes its old rules - highest number first.
 check "$(run)" "ufw --force delete 15

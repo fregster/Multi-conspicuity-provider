@@ -33,10 +33,12 @@ cover() {                      # cobertura.xml (kcov's layout: one element per l
     } > "$tmp/cobertura.xml"
 }
 run() { (CHECK_DIR=$fx PATH="$tmp/bin:$PATH" ./check.sh 2>&1); }
-has() { grep -qxF -- "$2" <<< "$1" || {
-    echo "FAIL: no line '$2' in: $1" >&2
+has() {
+    local out=$1 want=$2
+    grep -qxF -- "$want" <<< "$out" && return
+    echo "FAIL: no line '$want' in: $out" >&2
     exit 1
-}; }
+}
 
 # Everything wrong at once.
 cd "$fx"

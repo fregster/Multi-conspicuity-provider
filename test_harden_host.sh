@@ -12,10 +12,12 @@ chmod +x "$tmp"/bin/*
 # A PATH with no git on it, for the first run.
 ln -s "$(command -v bash)" "$tmp/nogit/bash"
 for c in sudo findmnt; do ln -s "$tmp/bin/$c" "$tmp/nogit/$c"; done
-check() { [[ "$1" == "$2" ]] || {
-    echo "FAIL: got '$1' want '$2'" >&2
+check() {
+    local got=$1 want=$2
+    [[ $got == "$want" ]] && return
+    echo "FAIL: got '$got' want '$want'" >&2
     exit 1
-}; }
+}
 dir=$tmp/dockerHosting
 
 # Fresh host: no git yet, nothing cloned, root on USB storage (so usb-storage stays).

@@ -13,10 +13,12 @@ for b in ogn-rf ogn-decode; do printf '#!/bin/sh\necho "%s $*"\n' "$b" > "$tmp/b
 printf '#!/bin/sh\necho SER1 > "%s/sys/bus/usb/devices/1-1/serial"\n' "$tmp" > "$tmp/bin/sleep"
 chmod +x "$tmp"/bin/*
 run() { PATH="$tmp/bin:$PATH" OGN_TEST_ROOT=$tmp OGN_CALL=MYSTN "$@" "${SH:-sh}" ./entrypoint.sh 2>&1; }
-check() { [ "$1" = "$2" ] || {
-    echo "FAIL: got '$1' want '$2'" >&2
+check() {
+    got=$1 want=$2
+    [ "$got" = "$want" ] && return
+    echo "FAIL: got '$got' want '$want'" >&2
     exit 1
-}; }
+}
 
 run env -u BINARY | grep -q "BINARY: set by the image" # message wording differs by shell
 check "$(run env BINARY=ogn-decode)" "ogn-decode $tmp/ogn/rtlsdr-ogn.conf"

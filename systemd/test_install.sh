@@ -19,25 +19,32 @@ esac\n' "$tmp" "$tmp" "$tmp" "$tmp" > "$tmp/bin/sudo"
 chmod +x "$tmp/bin/sudo"
 # run ANSWER: install.sh's output, its prompt answered with ANSWER (none: stdin closed).
 run() {
+    local answer=$1
     rm -f "$tmp/calls"
-    if [[ $1 == none ]]; then
+    if [[ $answer == none ]]; then
         PATH="$tmp/bin:$PATH" INSTALL_TEST_ROOT=$tmp/root ./install.sh < /dev/null
     else
-        PATH="$tmp/bin:$PATH" INSTALL_TEST_ROOT=$tmp/root ./install.sh <<< "$1"
+        PATH="$tmp/bin:$PATH" INSTALL_TEST_ROOT=$tmp/root ./install.sh <<< "$answer"
     fi
 }
-did() { grep -qxF -- "$1" "$tmp/calls" || {
-    echo "FAIL: no 'sudo $1' in: $(cat "$tmp/calls")" >&2
+did() {
+    local cmd=$1
+    grep -qxF -- "$cmd" "$tmp/calls" && return
+    echo "FAIL: no 'sudo $cmd' in: $(cat "$tmp/calls")" >&2
     exit 1
-}; }
-didnt() { ! grep -q -- "$1" "$tmp/calls" || {
-    echo "FAIL: unexpected '$1' in: $(cat "$tmp/calls")" >&2
+}
+didnt() {
+    local cmd=$1
+    grep -q -- "$cmd" "$tmp/calls" || return 0
+    echo "FAIL: unexpected '$cmd' in: $(cat "$tmp/calls")" >&2
     exit 1
-}; }
-says() { grep -qF -- "$2" <<< "$1" || {
-    echo "FAIL: no '$2' in output: $1" >&2
+}
+says() {
+    local out=$1 want=$2
+    grep -qF -- "$want" <<< "$out" && return
+    echo "FAIL: no '$want' in output: $out" >&2
     exit 1
-}; }
+}
 repo=$(cd .. && pwd)
 blacklist="install -m 0644 systemd/blacklist-rtlsdr.conf /etc/modprobe.d/"
 
