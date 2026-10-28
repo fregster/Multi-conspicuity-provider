@@ -46,6 +46,9 @@ LISTEN_PORT = int(os.environ.get("APRS_LISTEN_PORT", "14580"))
 STATUS_PORT = int(os.environ.get("STATUS_PORT", "8080"))
 UPSTREAM = ("aprs.glidernet.org", 14580)
 LOCAL_HOLD_S = 30
+# SBS output ports for the stream container (its readsb connects with sbs_in),
+# split so it can take our receiver without the OGN network: local? -> port.
+OUT_PORTS = {True: 30003, False: 30013}
 ADDRESS_TYPE_ICAO = 1  # OGN address types: 0 random, 1 ICAO, 2 FLARM, 3 OGN
 
 FEET_PER_METER = 1 / 0.3048
@@ -105,6 +108,26 @@ def sbs_send(line):
             connected["sbs"] = False
 
 
+outputs = {True: set(), False: set()}  # local? -> connected readers
+
+
+def serve_output(local):
+    srv = socket.create_server(("", OUT_PORTS[local]))
+    while True:
+        conn, _ = srv.accept()
+        conn.settimeout(1)  # a stalled reader holds up the decoder path for 1s at most, then is dropped
+        outputs[local].add(conn)
+
+
+def broadcast(line, local):
+    for conn in list(outputs[local]):
+        try:
+            conn.sendall((line + "\r\n").encode())
+        except OSError:
+            outputs[local].discard(conn)
+            conn.close()
+
+
 def sanitize_callsign(name):
     cleaned = "".join(ch for ch in name.upper() if ch.isalnum())[:8]
     return cleaned or "OGN"
@@ -157,6 +180,7 @@ def process_beacon(raw_message, local):
         last_local[addr] = now
     elif now - last_local.get(addr, -LOCAL_HOLD_S) < LOCAL_HOLD_S:
         return
+    broadcast(line, local)
     if sbs_send(line):
         seen("local_to_tar1090" if local else "network_to_tar1090")
 
@@ -270,6 +294,8 @@ def run_network_feed():
 
 def main():
     threading.Thread(target=run_network_feed, daemon=True).start()
+    for local in OUT_PORTS:
+        threading.Thread(target=serve_output, args=(local,), daemon=True).start()
     threading.Thread(target=ThreadingHTTPServer(("", STATUS_PORT), StatusHandler).serve_forever, daemon=True).start()
     srv = socket.create_server(("", LISTEN_PORT))
     log.info(f"Listening for ogn-decode on :{LISTEN_PORT}")

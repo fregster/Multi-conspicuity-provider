@@ -105,16 +105,23 @@ def serve(srv, kind, upstream):
         threading.Thread(target=handle, args=(client, addr, kind, upstream), daemon=True).start()
 
 
+def routes(env):
+    """GATE_ROUTES "listen:kind:upstream,..." (stream-gate), else the hub's three.
+    Upstreams are the loopback ports published in docker-compose.yml."""
+    spec = env.get("GATE_ROUTES") or ",".join(
+        [
+            f"{env.get('HUB_BEAST_IN_PORT', '30004')}:beast:39004",
+            f"{env.get('HUB_BEAST_OUT_PORT', '30005')}:open:39005",
+            f"{env.get('HUB_MLAT_PORT', '31090')}:mlat:39090",
+        ]
+    )
+    return [(int(p), k, ("127.0.0.1", int(u))) for p, k, u in (r.split(":") for r in spec.split(","))]
+
+
 def main():
-    # Upstreams are the loopback ports published in docker-compose.yml.
-    routes = [
-        (int(os.environ.get("HUB_BEAST_IN_PORT", "30004")), "beast", ("127.0.0.1", 39004)),
-        (int(os.environ.get("HUB_BEAST_OUT_PORT", "30005")), "open", ("127.0.0.1", 39005)),
-        (int(os.environ.get("HUB_MLAT_PORT", "31090")), "mlat", ("127.0.0.1", 39090)),
-    ]
     log(f"UUID check {'on: ' + str(len(ALLOWED)) + ' allowed' if ALLOWED else 'off'}")
     threads = []
-    for port, kind, upstream in routes:
+    for port, kind, upstream in routes(os.environ):
         srv = socket.create_server(("0.0.0.0", port))
         log(f"{kind}: :{port} -> {upstream[0]}:{upstream[1]}")
         threads.append(threading.Thread(target=serve, args=(srv, kind, upstream), daemon=True))

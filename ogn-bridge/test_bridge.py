@@ -11,11 +11,28 @@ bridge.sbs_send = lambda line: sent.append(line) or True
 LINE = "FLRDDA5BA>APRS,TCPIP*:/074548h5111.32N/00102.04W'086/007/A=000607 !W00! id06DDA5BA -019fpm"
 OTHER = "FLR123456>OGFLR,qAS,RX:/074548h5111.32N/00102.04W'086/007/A=000607 !W00! id06123456"
 
+local_out, local_in = bridge.socket.socketpair()
+net_out, net_in = bridge.socket.socketpair()
+bridge.outputs[True].add(local_out)
+bridge.outputs[False].add(net_out)
+
 bridge.process_beacon(LINE, local=False)  # network only: shown
 assert len(sent) == 1
+assert net_in.recv(4096) == (sent[0] + "\r\n").encode()  # stream output: network port only
+local_in.setblocking(False)
+try:
+    local_in.recv(4096)
+    raise AssertionError("network beacon reached the local-only output")
+except BlockingIOError:
+    pass
+local_in.setblocking(True)
 bridge.process_beacon(LINE, local=True)  # local: shown
+assert local_in.recv(4096) == (sent[1] + "\r\n").encode()
 bridge.process_beacon(LINE, local=False)  # network copy of a locally-heard aircraft: dropped
 assert len(sent) == 2
+local_in.close()  # a reader that went away is dropped, not retried
+bridge.broadcast("x", True)
+assert local_out not in bridge.outputs[True]
 bridge.process_beacon(OTHER, local=False)  # different aircraft, network only: shown
 assert len(sent) == 3
 bridge.last_local["DDA5BA"] -= bridge.LOCAL_HOLD_S + 1  # local went quiet: network resumes
