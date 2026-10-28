@@ -70,13 +70,17 @@ OGN APRS-IS (network-wide, when online) ------------------> ogn-bridge (local SD
 
 ## Checks
 
-`./check.sh` runs every code-standard and test gate, and CI runs the same script. Everything is discovered from the repo:
-- shellcheck on every `*.sh`, and ruff (pinned in CI) on every Python file;
-- every image is built; each service's `test_*.py` runs inside its image, and every other `test_*.sh` / `test_*.py` runs on the host;
-- every Python directory needs its own `ruff.toml` and a `test_*.py`;
-- any file type with no checker fails until one is added, or until it's listed in `check.sh` as needing none.
+Install the git hooks once per clone: `pre-commit install` (needs [pre-commit](https://pre-commit.com) and Docker). CI runs the same gates on every file.
 
-CI also runs hadolint on every Dockerfile, actionlint, `docker compose config` and gitleaks.
+- **On commit** ([.pre-commit-config.yaml](.pre-commit-config.yaml), every tool version pinned there):
+  - Python: ruff (every rule, complexity <= 10), ruff format and `mypy --strict`, configured in [pyproject.toml](pyproject.toml).
+  - Shell: shellcheck (optional checks on too, see [.shellcheckrc](.shellcheckrc)) and shfmt (style in [.editorconfig](.editorconfig)).
+  - Everything else: hadolint, yamllint, actionlint, prettier for Markdown/HTML, gitleaks and whitespace/merge-marker hygiene.
+  - Size caps: no Python, shell or Dockerfile over 300 lines, and no shell function over 50.
+  - Formatters fix files in place and fail the commit, so `git add` the result and commit again.
+- **On push**: [check.sh](check.sh) builds every image and runs every test. Each service's `test_*.py` runs inside its own image under branch coverage, and every other test runs from its own directory. A Python directory without a `test_*.py`, or a file type with no checker, fails until one is added (or the type is listed in `check.sh` as needing none).
+
+CI also runs `docker compose config` and gitleaks over the full history.
 
 ## Setup
 

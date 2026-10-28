@@ -14,7 +14,10 @@ chmod +x "$tmp"/bin/*
 
 run() { PATH="$tmp/bin:$PATH" NET_WATCHDOG_STATE_DIR=$tmp ./net-watchdog.sh > /dev/null; }
 action() { tail -n1 "$tmp/calls" 2> /dev/null | cut -d' ' -f1-3; }
-check() { [[ "$1" == "$2" ]] || { echo "FAIL at run $i: got '$1' want '$2'" >&2; exit 1; }; }
+check() { [[ "$1" == "$2" ]] || {
+    echo "FAIL at run $i: got '$1' want '$2'" >&2
+    exit 1
+}; }
 
 # Never-reachable gateway: re-activate at 5,10, bounce at 15,20,25,30 - no reboot.
 for i in $(seq 1 35); do
@@ -22,12 +25,15 @@ for i in $(seq 1 35); do
     case $i in
         5 | 10) check "$(action)" "nmcli device connect" ;;
         15 | 20 | 25 | 30 | 35) check "$(action)" "ip link set" ;;
+        *) ;;
     esac
 done
 
 # Gateway answered earlier this boot: reboot once the failures reach 30.
 rm -f "$tmp"/calls "$tmp"/net-watchdog.fails
-touch "$tmp/up"; run; rm "$tmp/up"
+touch "$tmp/up"
+run
+rm "$tmp/up"
 for i in $(seq 1 30); do run; done
 check "$(action)" "systemctl reboot"
 echo ok

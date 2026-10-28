@@ -24,10 +24,10 @@ assert gate.routes({"GATE_ROUTES": "30003:open:39103,30047:open:39147"}) == [
 
 # End to end: a fake upstream records what reaches it through the gate.
 up = socket.create_server(("127.0.0.1", 0))
-got = []
+got: list[bytes] = []
 
 
-def upstream():
+def upstream() -> None:
     while True:
         c, _ = up.accept()
         got.append(c.recv(4096))
@@ -38,7 +38,7 @@ def upstream():
 threading.Thread(target=upstream, daemon=True).start()
 
 
-def through(kind, hello):
+def through(kind: str, hello: bytes) -> bytes:
     srv = socket.create_server(("127.0.0.1", 0))
     threading.Thread(target=gate.serve, args=(srv, kind, up.getsockname()), daemon=True).start()
     c = socket.create_connection(srv.getsockname())

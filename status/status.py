@@ -13,12 +13,15 @@ asked whether our Beast/MLAT feeds actually arrive (cached REMOTE_TTL_S, they
 are third-party services). Matching is by source IP, not UUID.
 """
 
+import functools
 import json
 import os
 import re
 import socket
 import time
+from collections.abc import Callable
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from typing import Any
 from urllib.request import Request, urlopen
 
 DOCKER = "http://socket-proxy:2375"
@@ -33,16 +36,17 @@ REMOTE = {
     "airplanes.live": ("https://api.airplanes.live/feed-status", ("beast_clients",), ("mlat_clients",)),
 }
 REMOTE_TTL_S = 300
-_remote = {"at": float("-inf"), "data": None}
+_remote: dict[str, Any] = {"at": float("-inf"), "data": None}
 
 
-def get(url):
+def get(url: str) -> bytes:
     # Aggregator APIs 403 Python's default User-Agent.
     with urlopen(Request(url, headers={"User-Agent": "multi-conspicuity-provider/status"}), timeout=3) as r:
-        return r.read()
+        data: bytes = r.read()
+        return data
 
 
-def containers():
+def containers() -> list[dict[str, str]]:
     rows = json.loads(get(f"{DOCKER}/containers/json?all=1"))
     project = next(
         c["Labels"].get("com.docker.compose.project") for c in rows if c["Id"].startswith(socket.gethostname())
@@ -54,7 +58,7 @@ def containers():
     ]
 
 
-def beast(prom):
+def beast(prom: str) -> list[dict[str, Any]]:
     # readsb_net_connector_status{host="in.adsb.lol",port="30004"} 3204  -> seconds connected, 0 if down
     return [
         {"host": h, "up_s": int(float(v))}
@@ -62,7 +66,7 @@ def beast(prom):
     ]
 
 
-def mlat():
+def mlat() -> list[dict[str, Any]]:
     out = []
     for host, port in MLAT:
         try:
@@ -73,37 +77,42 @@ def mlat():
     return out
 
 
-def dig(doc, path):
+def dig(doc: Any, path: tuple[str, ...]) -> bool | None:
     """Non-empty client list at path -> True, empty -> False, key missing (API changed) -> None."""
     for k in path:
         doc = doc.get(k) if isinstance(doc, dict) else None
     return None if doc is None else bool(doc)
 
 
-def seen(doc, beast_path, mlat_path):
+def seen(doc: Any, beast_path: tuple[str, ...], mlat_path: tuple[str, ...]) -> dict[str, bool | None]:
     """Does the aggregator report at least one Beast / MLAT client from our IP?"""
     return {"beast": dig(doc, beast_path), "mlat": dig(doc, mlat_path)}
 
 
-def remote():
+def ask(url: str, beast_path: tuple[str, ...], mlat_path: tuple[str, ...]) -> dict[str, bool | None]:
+    return seen(json.loads(get(url)), beast_path, mlat_path)
+
+
+def remote() -> list[dict[str, Any]]:
     if time.monotonic() - _remote["at"] < REMOTE_TTL_S:
-        return _remote["data"]
+        cached: list[dict[str, Any]] = _remote["data"]
+        return cached
     out = []
     for site, (url, b, m) in REMOTE.items():
-        r = safe(lambda url=url, b=b, m=m: seen(json.loads(get(url)), b, m)) or {"beast": None, "mlat": None}
+        r = safe(functools.partial(ask, url, b, m)) or {"beast": None, "mlat": None}
         out.append({"site": site, **r})
     _remote.update(at=time.monotonic(), data=out)
     return out
 
 
-def safe(fn):
+def safe[T](fn: Callable[[], T]) -> T | None:
     try:
         return fn()
     except Exception:  # noqa: BLE001 - one unreachable source must not blank the whole page
         return None
 
 
-def status():
+def status() -> dict[str, Any]:
     return {
         "containers": safe(containers),
         "beast": safe(lambda: beast(get(f"{ULTRAFEEDER}/metrics").decode())),
@@ -114,7 +123,7 @@ def status():
 
 
 class Handler(BaseHTTPRequestHandler):
-    def do_GET(self):
+    def do_GET(self) -> None:
         body = json.dumps(status()).encode()
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
@@ -122,7 +131,7 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
-    def log_message(self, *args):
+    def log_message(self, *_args: object) -> None:
         pass  # silence per-request stderr logging
 
 

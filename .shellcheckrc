@@ -1,0 +1,5 @@
+# Every optional check, except three that flag idioms rather than bugs:
+#   SC2250 ${var} braces everywhere; SC2312 a $(cmd) whose result is checked
+#   anyway; SC2310 a function used as an if/|| condition.
+enable=all
+disable=SC2250,SC2310,SC2312
