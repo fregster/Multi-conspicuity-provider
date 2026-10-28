@@ -133,6 +133,7 @@ services:
     image: ghcr.io/sdr-enthusiasts/docker-adsb-ultrafeeder:${ULTRAFEEDER_TAG:-latest}
     container_name: ultrafeeder
     hostname: ultrafeeder
+    entrypoint: ["/peers/peers.sh", "out", "/init"]
     networks:
       - proxy
       - adsb
@@ -206,6 +207,9 @@ services:
           adsb,feed.flyoverhead.com,30004,beast_reduce_plus_out,uuid=${FLYOVERHEAD_UUID:?};\
           adsb,feed.flyrealtraffic.com,30004,beast_reduce_plus_out,uuid=${REALTRAFFIC_UUID:?};\
           adsb,feed.tryflightdeck.com,30004,beast_reduce_plus_out,uuid=${FLIGHTDECK_UUID:?}"
+      # Outbound Beast Reduce Plus peers, added to ULTRAFEEDER_CONFIG by peers.sh.
+      - &beast-peers BEAST_PEERS=${BEAST_PEERS:-}
+      - &beast-peer-uuid BEAST_PEER_UUID=${BEAST_PEER_UUID:?}
       - TAR1090_PAGETITLE=${STATION_NAME}
       - TAR1090_MESSAGERATEINTITLE=true
       - TAR1090_PLANECOUNTINTITLE=true
@@ -217,12 +221,114 @@ services:
       - ultrafeeder_globe_history:/var/globe_history
       - ultrafeeder_graphs:/var/lib/collectd
       - /dev/bus/usb:/dev/bus/usb
+      - ./peers:/peers:ro
       # Offline basemap store, filled by tiles/offline_tiles.py. tar1090 adds
       # an "OpenStreetMap offline" layer at startup when it holds any tiles.
       - ${OFFLINE_TILES_DIR:-/usr/local/share/osm_tiles_offline}:/usr/local/share/osm_tiles_offline:ro
     tmpfs:
       - /run:exec,size=256M
       - /var/log:size=32M
+
+  # Second, SDR-less map: our own traffic plus every inbound (in=) peer in
+  # BEAST_PEERS, and MLAT from each mlat= peer server. Kept apart from
+  # ultrafeeder so peers' data (and MLAT computed from it) is never passed on
+  # to the aggregators as if we'd received it. Off unless COMPOSE_PROFILES
+  # includes peer-map (or hub).
+  peer-map:
+    <<: *hardened
+    profiles: [peer-map, hub]
+    cap_add:
+      - CHOWN
+      - SETUID
+      - SETGID
+    image: ghcr.io/sdr-enthusiasts/docker-adsb-ultrafeeder:${ULTRAFEEDER_TAG:-latest}
+    container_name: peer-map
+    hostname: peer-map
+    entrypoint: ["/peers/peers.sh", "in", "/init"]
+    networks:
+      - proxy
+      - adsb
+    depends_on:
+      - ultrafeeder
+    # Beast in/out for hub-gate only: loopback, never reachable from outside.
+    ports:
+      - "127.0.0.1:39004:30004"
+      - "127.0.0.1:39005:30005"
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.peer-map.rule=PathPrefix(`/peer-map`)"
+      - "traefik.http.routers.peer-map.entrypoints=websecure"
+      - "traefik.http.routers.peer-map.tls=true"
+      - "traefik.http.routers.peer-map.middlewares=peer-map-strip"
+      - "traefik.http.middlewares.peer-map-strip.stripprefix.prefixes=/peer-map"
+      - "traefik.http.services.peer-map.loadbalancer.server.port=80"
+      - "autoheal=uplink"
+    environment:
+      - TZ=${TZ:-UTC}
+      - READSB_LAT=${STATION_LAT}
+      - READSB_LON=${STATION_LON}
+      - READSB_ALT=${STATION_ALT_M}m
+      - ULTRAFEEDER_CONFIG=adsb,ultrafeeder,30005,beast_in
+      - *beast-peers
+      - *beast-peer-uuid
+      - MLAT_USER=${STATION_NAME}
+      # Peer MLAT results go out on Beast output too, so a hub's 30005 hands
+      # every peer the whole group's MLAT. Safe: this output only ever feeds
+      # other peer-maps, never an aggregator.
+      - READSB_FORWARD_MLAT=true
+      - TAR1090_PAGETITLE=${STATION_NAME} + peers
+      - TAR1090_SITESHOW=true
+      - GRAPHS1090_DISABLE=true
+    volumes:
+      - ./peers:/peers:ro
+      - ${OFFLINE_TILES_DIR:-/usr/local/share/osm_tiles_offline}:/usr/local/share/osm_tiles_offline:ro
+    tmpfs:
+      - /run:exec,size=256M
+      - /var/log:size=32M
+
+  # --- Hub: other stations of this stack peer with us (COMPOSE_PROFILES=hub) ---
+  # MLAT server for the peer group (wiedehopf's fork, AGPL-3.0, image built
+  # by adsb.lol). Peers reach it through hub-gate; our own peer-map directly.
+  mlat-server:
+    <<: *hardened
+    profiles: [hub]
+    # Pinned (third-party, single maintainer); Dependabot proposes updates.
+    image: ghcr.io/adsblol/mlat-server@sha256:f768757e62bc26c0df6ff0021967ba121f366ae8f75d768740cbaf3f6956d20b
+    container_name: mlat-server
+    user: "65534:65534"
+    read_only: true
+    networks:
+      - adsb
+    command: ["--client-listen", "31090", "--work-dir", "/run/mlat-server"]
+    environment:
+      # Upstream's advice: more maths threads only slow it down.
+      - MKL_NUM_THREADS=1
+      - NUMEXPR_NUM_THREADS=1
+      - OMP_NUM_THREADS=1
+    ports:
+      - "127.0.0.1:39090:31090" # for hub-gate only
+    tmpfs:
+      - /run/mlat-server:uid=65534,gid=65534
+      - /tmp
+
+  # Public face of the hub: peer-map's Beast in/out and mlat-server, with an
+  # optional UUID allow-list. Host network so UFW's INPUT rules apply to these
+  # ports (hub/ufw.sh opens them); see hub/gate.py.
+  hub-gate:
+    <<: *hardened
+    profiles: [hub]
+    build: ./hub
+    container_name: hub-gate
+    read_only: true
+    network_mode: host
+    depends_on:
+      - peer-map
+      - mlat-server
+    environment:
+      - HUB_BEAST_IN_PORT=${HUB_BEAST_IN_PORT:-30004}
+      - HUB_BEAST_OUT_PORT=${HUB_BEAST_OUT_PORT:-30005}
+      - HUB_MLAT_PORT=${HUB_MLAT_PORT:-31090}
+      - HUB_ALLOWED_UUIDS=${HUB_ALLOWED_UUIDS:-}
 
   # Feeds PiAware/FlightAware from ultrafeeder's Beast output - no SDR of its own.
   piaware:
