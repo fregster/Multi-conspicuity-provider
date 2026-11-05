@@ -1,5 +1,5 @@
 # Restarts unhealthy autoheal-labelled containers. Stdlib only.
-FROM python:3.13-alpine@sha256:8bcfa47b04b853a17aaf909362b847b2112fd6ec4105ea553ef9a43bafbb5916
+FROM python:3.15-alpine@sha256:20a82dbc2783112ddb91d1534603f802d222a3e63e593cd002eb2ac534e70211
 COPY healer.py /healer.py
 ENV PYTHONUNBUFFERED=1
 USER 65534:65534
