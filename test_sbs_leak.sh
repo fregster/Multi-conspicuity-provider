@@ -4,8 +4,9 @@
 # (asterix.py) on the ASTERIX input, as ogn-bridge sends them, and SBS lines on
 # the SBS input it still opens. Fails if any reach a network output (SBS:
 # adsbhub's feed; Beast and Beast-reduce: piaware, fr24feed, the ultrafeeder
-# aggregators...; JSON), or if they drop off the map or land there as anything
-# but non-ADS-B traffic with a geometric height.
+# aggregators...; JSON), if they drop off the map or land there as anything but
+# non-ADS-B traffic with a geometric height, or if the ADS-B Exchange stats
+# upload, which sends the whole aircraft.json, is switched on.
 # Needs Docker; pulls the ultrafeeder image and builds ogn-bridge's.
 set -euo pipefail
 cd "$(dirname "$0")"
@@ -15,6 +16,10 @@ for var in $(grep -oE '^[A-Z0-9_]+_UUID=' .env.example | tr -d =); do export "$v
 config=$(docker compose --env-file .env.example config ultrafeeder)
 image=$(sed -n 's/^ *image: //p' <<< "$config")
 args=$(sed -n 's/^ *READSB_EXTRA_ARGS: //p' <<< "$config")
+grep -q 'ADSBX_STATS: "false"' <<< "$config" || {
+    echo "FAIL: ADSBX_STATS is not false: adsbx-stats uploads aircraft.json, OGN contacts and all" >&2
+    exit 1
+}
 bridge=$(docker build -q ogn-bridge)
 
 name=sbs-leak-test-$$
