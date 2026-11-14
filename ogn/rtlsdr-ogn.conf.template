@@ -6,6 +6,9 @@ RF:
 {
   FreqCorr = ${SDR_FLARM_PPM};
   DeviceSerial = "${SDR_FLARM_SERIAL}";
+  # 2MHz, not ogn-rf's CPU-count-based default (1MHz on 1-2 core hosts): the
+  # 868.8MHz +-1MHz window then also covers PilotAware (P3I) at 869.525MHz.
+  SampleRate = 2.0;
   OGN:
   {
     CenterFreq = 868.8;

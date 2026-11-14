@@ -1,6 +1,6 @@
 """
-Puts FLARM/OGN traffic on tar1090 from two sources, re-emitted as synthetic
-SBS/BaseStation lines into readsb's SBS input port:
+Puts FLARM/OGN traffic on tar1090 from two sources, re-emitted as ASTERIX
+CAT021 records (asterix.py) into readsb's ASTERIX input port:
 
   local    ogn-decode is pointed at this process as its "APRS server" (a minimal
            APRS-IS endpoint), so positions from our own SDR arrive here with no
@@ -13,12 +13,16 @@ De-dup: our SDR is always fresher and more reliable than the network copy, so on
 an aircraft has been heard locally, network reports for it are dropped for
 LOCAL_HOLD_S seconds (otherwise the two sources make the icon jump between them).
 
-SBS line format and the "~" non-ICAO-address prefix convention are taken
-from readsb's own decoder (decodeSbsLine in net_io.c), not guessed. A beacon whose
-OGN address type is ICAO goes out without the "~": it is the aircraft's real Mode S
-address, so readsb merges it into the aircraft's own entry instead of listing a
-second "~" copy beside it.
-MSG,3,1,1,~icaoHex,1,date,time,date,time,callsign,alt_ft,speed_kt,track,lat,lon,vrate_fpm,,,,,,
+The id field's privacy flags (idSTttttaa: S stealth, T no-tracking):
+  no-tracking  the pilot opted out. Shown nowhere, and not relayed to the OGN
+               network either: OGN ground stations reject such data and "no
+               messages with the no-tracking flag set should ever appear on the
+               public APRS network" (OGN's ogn-flavoured-aprs wiki page).
+               Only counted, never logged.
+  stealth      FLARM's competition mode: other FLARM units get no altitude or
+               climb rate, collision warnings are unaffected, and it is not an
+               opt-out from being seen. Shown, with nothing beyond what the
+               beacon itself carries.
 """
 
 import contextlib
@@ -29,12 +33,13 @@ import queue
 import socket
 import threading
 import time
+from collections import Counter
 from collections.abc import Iterator
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from typing import Any
 
+import asterix
 from ogn.client import AprsClient
 from ogn.parser import parse
 
@@ -44,34 +49,34 @@ log = logging.getLogger("ogn-bridge")
 STATION_LAT = float(os.environ["STATION_LAT"])
 STATION_LON = float(os.environ["STATION_LON"])
 RANGE_KM = int(os.environ.get("OGN_RANGE_KM", "150"))
-SBS_HOST = os.environ.get("SBS_HOST", "ultrafeeder")
-SBS_PORT = int(os.environ.get("SBS_PORT", "32006"))
+READSB_HOST = os.environ.get("READSB_HOST", "ultrafeeder")
+READSB_PORT = int(os.environ.get("READSB_PORT", "32021"))  # its --net-asterix-in-port
 LISTEN_PORT = int(os.environ.get("APRS_LISTEN_PORT", "14580"))
 STATUS_PORT = int(os.environ.get("STATUS_PORT", "8080"))
 UPSTREAM = ("aprs.glidernet.org", 14580)
 LOCAL_HOLD_S = 30
-# SBS output ports for the stream container (its readsb connects with sbs_in),
-# split so it can take our receiver without the OGN network: local? -> port.
-OUT_PORTS = {True: 30003, False: 30013}
-ADDRESS_TYPE_ICAO = 1  # OGN address types: 0 random, 1 ICAO, 2 FLARM, 3 OGN
-
-FEET_PER_METER = 1 / 0.3048
-KNOTS_PER_KMH = 1 / 1.852
-FPM_PER_MS = 1 / 0.00508
+# ASTERIX output ports for the stream container (its readsb connects with
+# asterix_in), split so it can take our receiver without the OGN network: local? -> port.
+OUT_PORTS = {True: 30021, False: 30022}
+# Protocol of a beacon: ogn-client's beacon_type, which has no name for ADS-L.
+DSTCALL_PROTOCOL = {"OGADSL": "adsl"}
 
 
 @dataclass
-class SbsLink:
+class ReadsbLink:
     sock: socket.socket | None = None
     retry_at: float = 0.0
 
 
-sbs = SbsLink()
-sbs_lock = threading.Lock()
+readsb = ReadsbLink()
+readsb_lock = threading.Lock()
 
 # Health for the status page: open links, and when each flow last moved data.
-connected: dict[str, int | bool] = {"decoder": 0, "uplink": 0, "sbs": False}
+connected: dict[str, int | bool] = {"decoder": 0, "uplink": 0, "readsb": False}
 last: dict[str, float] = {}  # event -> monotonic time
+# Aircraft beacons per source (local?) and protocol, and no-tracking beacons withheld.
+heard: dict[bool, Counter[str]] = {True: Counter(), False: Counter()}
+withheld = {"no_tracking": 0}
 
 
 def seen(event: str) -> None:
@@ -81,7 +86,14 @@ def seen(event: str) -> None:
 class StatusHandler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
         now = time.monotonic()
-        body = json.dumps({"connected": connected, "age_s": {k: round(now - v) for k, v in last.items()}}).encode()
+        body = json.dumps(
+            {
+                "connected": connected,
+                "age_s": {k: round(now - v) for k, v in last.items()},
+                "heard": {"local": heard[True], "network": heard[False]},
+                "withheld": withheld,
+            }
+        ).encode()
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
         self.end_headers()
@@ -91,29 +103,29 @@ class StatusHandler(BaseHTTPRequestHandler):
         pass  # silence per-request stderr logging
 
 
-def sbs_send(line: str) -> bool:
+def readsb_send(record: bytes) -> bool:
     # Never blocks the decoder path for long: one short connect attempt per 5s,
-    # and lines are dropped (live positions go stale anyway) while ultrafeeder is down.
-    with sbs_lock:
-        if sbs.sock is None:
-            if time.monotonic() < sbs.retry_at:
+    # and records are dropped (live positions go stale anyway) while ultrafeeder is down.
+    with readsb_lock:
+        if readsb.sock is None:
+            if time.monotonic() < readsb.retry_at:
                 return False
             try:
-                sbs.sock = socket.create_connection((SBS_HOST, SBS_PORT), timeout=3)
+                readsb.sock = socket.create_connection((READSB_HOST, READSB_PORT), timeout=3)
             except OSError as e:
-                sbs.retry_at = time.monotonic() + 5
-                connected["sbs"] = False
-                log.warning("SBS connect failed (%s), retrying in 5s", e)
+                readsb.retry_at = time.monotonic() + 5
+                connected["readsb"] = False
+                log.warning("ASTERIX connect failed (%s), retrying in 5s", e)
                 return False
-            connected["sbs"] = True
-            log.info("Connected to SBS input at %s:%s", SBS_HOST, SBS_PORT)
+            connected["readsb"] = True
+            log.info("Connected to ASTERIX input at %s:%s", READSB_HOST, READSB_PORT)
         try:
-            sbs.sock.sendall((line + "\r\n").encode())
+            readsb.sock.sendall(record)
         except OSError:
-            log.warning("SBS connection lost, reconnecting")
-            sbs.sock.close()
-            sbs.sock = None
-            connected["sbs"] = False
+            log.warning("ASTERIX connection lost, reconnecting")
+            readsb.sock.close()
+            readsb.sock = None
+            connected["readsb"] = False
             return False
         return True
 
@@ -129,70 +141,41 @@ def serve_output(local: bool) -> None:  # noqa: FBT001  # the key of OUT_PORTS
         outputs[local].add(conn)
 
 
-def broadcast(line: str, local: bool) -> None:  # noqa: FBT001  # the key of outputs
+def broadcast(record: bytes, local: bool) -> None:  # noqa: FBT001  # the key of outputs
     for conn in list(outputs[local]):
         try:
-            conn.sendall((line + "\r\n").encode())
+            conn.sendall(record)
         except OSError:
             outputs[local].discard(conn)
             conn.close()
 
 
-def sanitize_callsign(name: str) -> str:
-    cleaned = "".join(ch for ch in name.upper() if ch.isalnum())[:8]
-    return cleaned or "OGN"
-
-
-def to_sbs(beacon: dict[str, Any]) -> str | None:
-    # Only actual aircraft position reports - not receiver/weather-station beacons.
-    if beacon.get("aprs_type") != "position":
-        return None
-    if not all(beacon.get(k) is not None for k in ("address", "latitude", "longitude")):
-        return None
-
-    icao = beacon["address"] if beacon.get("address_type") == ADDRESS_TYPE_ICAO else f"~{beacon['address']}"
-    callsign = sanitize_callsign(beacon.get("name", "OGN"))
-
-    now = datetime.now(UTC)
-    date_str = now.strftime("%Y/%m/%d")
-    time_str = now.strftime("%H:%M:%S.%f")[:-3]
-
-    alt_ft = f"{beacon['altitude'] * FEET_PER_METER:.0f}" if "altitude" in beacon else ""
-    speed_kt = f"{beacon['ground_speed'] * KNOTS_PER_KMH:.0f}" if "ground_speed" in beacon else ""
-    track = f"{beacon['track']:.0f}" if "track" in beacon else ""
-    vrate_fpm = f"{beacon['climb_rate'] * FPM_PER_MS:.0f}" if "climb_rate" in beacon else ""
-
-    # fmt: off
-    fields = [
-        "MSG", "3", "1", "1", icao, "1",
-        date_str, time_str, date_str, time_str,
-        callsign, alt_ft, speed_kt, track,
-        f"{beacon['latitude']:.5f}", f"{beacon['longitude']:.5f}",
-        vrate_fpm, "", "", "", "", "",
-    ]
-    # fmt: on
-    return ",".join(fields)
-
-
 last_local: dict[str, float] = {}  # address -> monotonic time last heard by our SDR (one float per aircraft seen)
 
 
-def process_beacon(raw_message: str, *, local: bool) -> None:
+def process_beacon(raw_message: str, *, local: bool) -> bool:
+    """Shows an aircraft beacon on tar1090 and the stream. False: a no-tracking
+    beacon, which must not be relayed to the OGN network either."""
     try:
         beacon = parse(raw_message)
     except Exception:  # noqa: BLE001  # AprsParseError or anything odd in a line from the wire
-        return
-    line = to_sbs(beacon)
-    if not line:
-        return
+        return True
+    if beacon.get("no-tracking"):
+        withheld["no_tracking"] += 1
+        return False
+    record = asterix.to_cat021(beacon, datetime.now(UTC))
+    if record is None:
+        return True
     addr, now = beacon["address"], time.monotonic()
+    heard[local][DSTCALL_PROTOCOL.get(beacon.get("dstcall", ""), beacon.get("beacon_type", "unknown"))] += 1
     if local:
         last_local[addr] = now
     elif now - last_local.get(addr, -LOCAL_HOLD_S) < LOCAL_HOLD_S:
-        return
-    broadcast(line, local)
-    if sbs_send(line):
+        return True
+    broadcast(record, local)
+    if readsb_send(record):
         seen("local_to_tar1090" if local else "network_to_tar1090")
+    return True
 
 
 class ClosedByServerError(ConnectionError):
@@ -288,9 +271,9 @@ def serve_decoder(conn: socket.socket) -> None:
             if q is None:  # first line is the login
                 q = login(conn, line, stop)
                 continue
-            process_beacon(line, local=True)
-            with contextlib.suppress(queue.Full):
-                q.put_nowait(line)
+            if process_beacon(line, local=True):
+                with contextlib.suppress(queue.Full):
+                    q.put_nowait(line)
     except OSError:
         pass
     finally:

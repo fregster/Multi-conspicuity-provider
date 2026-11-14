@@ -174,10 +174,10 @@
         if (r.beast) level = r.mlat ? "ok" : "warn";
         return [level, `server sees ${sees}`];
       }
-      // The SBS link to tar1090 opens on the first aircraft, so "never connected" is just a quiet sky.
-      function sbsRow(o) {
+      // The link to tar1090 opens on the first aircraft, so "never connected" is just a quiet sky.
+      function readsbRow(o) {
         const name = "Local OGN \u2192 tar1090";
-        if (o.connected.sbs)
+        if (o.connected.readsb)
           return ["ok", name, `last aircraft ${ago(o.age_s.local_to_tar1090)}`];
         if (
           o.age_s.local_to_tar1090 == null &&
@@ -185,7 +185,18 @@
         ) {
           return ["warn", name, "no aircraft yet"];
         }
-        return ["bad", name, "tar1090 SBS input unreachable"];
+        return ["bad", name, "tar1090 ASTERIX input unreachable"];
+      }
+      // Aircraft beacons our receiver heard since ogn-bridge started, per protocol.
+      function protocolRow(o) {
+        const heard = Object.entries(o.heard.local)
+          .map(([protocol, n]) => `${protocol} ${n}`)
+          .join(", ");
+        return [
+          "ok",
+          "Heard locally, by protocol",
+          `${heard || "none yet"}; ${o.withheld.no_tracking} no-tracking withheld`,
+        ];
       }
 
       function fill(id, rows) {
@@ -259,7 +270,8 @@
               ? `data ${ago(o.age_s.decoder_rx)}`
               : "ogn-decode not connected to bridge",
           ],
-          sbsRow(o),
+          readsbRow(o),
+          protocolRow(o),
           [
             networkUp ? "ok" : "warn",
             "OGN network \u2192 tar1090",
