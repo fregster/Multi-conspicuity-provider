@@ -19,9 +19,9 @@ want() {
     esac
 }
 
-set -- --net-connector=ultrafeeder,30005,beast_in --net-connector=ogn-bridge,30003,sbs_in
+set -- --net-connector=ultrafeeder,30005,beast_in --net-connector=ogn-bridge,30021,asterix_in
 if want mlat; then set -- "$@" --net-connector=ultrafeeder,31005,beast_in; fi
-if want ogn; then set -- "$@" --net-connector=ogn-bridge,30013,sbs_in; fi
+if want ogn; then set -- "$@" --net-connector=ogn-bridge,30022,asterix_in; fi
 IFS=';'
 for peer in ${BEAST_PEERS:-}; do
     want "${peer%%,*}" || continue

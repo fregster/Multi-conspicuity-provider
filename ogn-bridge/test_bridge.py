@@ -1,4 +1,5 @@
-"""Run: STATION_LAT=51 STATION_LON=0 python3 test_bridge.py  (needs ogn-client)"""
+"""Run: STATION_LAT=51 STATION_LON=0 python3 test_bridge.py, in the ogn-bridge image
+(ogn-client, and the geoid grid asterix.py reads)."""
 
 import contextlib
 import json
@@ -16,6 +17,7 @@ from unittest import mock
 os.environ.setdefault("STATION_LAT", "51")
 os.environ.setdefault("STATION_LON", "0")
 import bridge
+import test_asterix  # asterix.py's own checks, so this run covers bridge's import of it too
 
 logging.disable(logging.CRITICAL)  # the bridge logs every connect/drop; keep test output to asserts
 
@@ -28,16 +30,16 @@ def fake_sock() -> mock.Mock:
     return mock.Mock(spec=socket.socket)
 
 
-sent: list[str] = []
+sent: list[bytes] = []
 
 
-def fake_sbs_send(line: str) -> bool:
-    sent.append(line)
+def fake_readsb_send(record: bytes) -> bool:
+    sent.append(record)
     return True
 
 
-sbs_patch = mock.patch.object(bridge, "sbs_send", fake_sbs_send)
-sbs_patch.start()
+readsb_patch = mock.patch.object(bridge, "readsb_send", fake_readsb_send)
+readsb_patch.start()
 LINE = "FLRDDA5BA>APRS,TCPIP*:/074548h5111.32N/00102.04W'086/007/A=000607 !W00! id06DDA5BA -019fpm"
 OTHER = "FLR123456>OGFLR,qAS,RX:/074548h5111.32N/00102.04W'086/007/A=000607 !W00! id06123456"
 
@@ -46,9 +48,9 @@ net_out, net_in = socket.socketpair()
 bridge.outputs[True].add(local_out)
 bridge.outputs[False].add(net_out)
 
-bridge.process_beacon(LINE, local=False)  # network only: shown
+assert bridge.process_beacon(LINE, local=False)  # network only: shown
 assert len(sent) == 1
-assert net_in.recv(4096) == (sent[0] + "\r\n").encode()  # stream output: network port only
+assert net_in.recv(4096) == sent[0]  # stream output: network port only
 local_in.setblocking(False)
 try:
     local_in.recv(4096)
@@ -57,30 +59,59 @@ except BlockingIOError:
     pass
 local_in.setblocking(True)
 bridge.process_beacon(LINE, local=True)  # local: shown
-assert local_in.recv(4096) == (sent[1] + "\r\n").encode()
+assert local_in.recv(4096) == sent[1]
 bridge.process_beacon(LINE, local=False)  # network copy of a locally-heard aircraft: dropped
 assert len(sent) == 2
 local_in.close()  # a reader that went away is dropped, not retried
-bridge.broadcast("x", True)
+bridge.broadcast(b"x", True)
 assert local_out not in bridge.outputs[True]
 bridge.process_beacon(OTHER, local=False)  # different aircraft, network only: shown
 assert len(sent) == 3
 bridge.last_local["DDA5BA"] -= bridge.LOCAL_HOLD_S + 1  # local went quiet: network resumes
 bridge.process_beacon(LINE, local=False)
 assert len(sent) == 4
-bridge.process_beacon("MYCALL>APRS,TCPIP*:/074548h5111.32NI00102.04W&/A=000607", local=True)  # receiver beacon
-bridge.process_beacon("garbage", local=True)
+assert bridge.process_beacon("MYCALL>APRS,TCPIP*:/074548h5111.32NI00102.04W&/A=000607", local=True)  # receiver
+assert bridge.process_beacon("garbage", local=True)  # not ours to judge: still relayed
 assert len(sent) == 4
 assert {"local_to_tar1090", "network_to_tar1090"} <= bridge.last.keys()  # status page ages
-assert sent[0].split(",")[4] == "~DDA5BA"  # FLARM address: readsb's non-ICAO prefix
-# ICAO address: no "~", so readsb merges it with the aircraft's own ADS-B entry
+assert 2 not in test_asterix.items(sent[0])  # FLARM address: no I021/040, readsb's non-ICAO "~"
+# ICAO address: I021/040 ATP 0, so readsb merges it with the aircraft's own ADS-B entry
 bridge.process_beacon(
     "ICA4080F6>OGADSB,qAS,RX:/074548h5111.32N/00102.04W^152/335/A=015413 !W00! id054080F6", local=False
 )
-assert sent[-1].split(",")[4] == "4080F6", sent[-1]
-sbs_patch.stop()
+assert test_asterix.items(sent[-1])[2] == b"\x10"
+assert test_asterix.items(sent[-1])[11] == bytes.fromhex("4080F6")
+
+# Privacy flags (idSTttttaa), each case local and network: no-tracking (T) alone decides,
+# stealth (S) changes nothing. Withheld beacons are counted, not stored or sent anywhere.
+flag_lines = {
+    (stealth, no_track): f"FLR{a}>OGFLR,qAS,RX:/074548h5111.32N/00102.04W'086/007/A=000607 !W00! id{f}{a}"
+    for (stealth, no_track), (f, a) in {
+        (False, False): ("06", "A00001"),
+        (True, False): ("86", "A00002"),
+        (False, True): ("46", "A00003"),
+        (True, True): ("C6", "A00004"),
+    }.items()
+}
+for local in (False, True):  # network first: a local copy would hold the network one back
+    for (stealth, no_track), line in flag_lines.items():
+        n_sent, n_withheld = len(sent), bridge.withheld["no_tracking"]
+        assert bridge.process_beacon(line, local=local) is not no_track, (stealth, no_track)
+        assert len(sent) == n_sent + (not no_track)
+        assert bridge.withheld["no_tracking"] == n_withheld + no_track
+assert {"A00003", "A00004"}.isdisjoint(bridge.last_local)
+assert {"A00001", "A00002"} <= bridge.last_local.keys()
+
+# Beacons per protocol and source: ogn-client's beacon_type, ADS-L by its dstcall.
+bridge.process_beacon(
+    "ADS123456>OGADSL,qAS,RX:/074548h5111.32N/00102.04W'000/000/A=001000 !W00! id25123456", local=True
+)
+assert bridge.heard[True]["adsl"] == 1
+assert bridge.heard[True]["flarm"] == 2  # the two shown flag cases
+assert bridge.heard[True]["unknown"] == 1  # LINE's dstcall, APRS, is no protocol
+readsb_patch.stop()
 before = dict(bridge.last)
-with mock.patch.object(bridge, "sbs_send", return_value=False):  # tar1090 down: shown on the stream only
+with mock.patch.object(bridge, "readsb_send", return_value=False):  # tar1090 down: shown on the stream only
     bridge.process_beacon(OTHER, local=True)
 assert bridge.last["local_to_tar1090"] == before["local_to_tar1090"]
 for o in (local_out, net_out, net_in):
@@ -88,56 +119,33 @@ for o in (local_out, net_out, net_in):
     bridge.outputs[False].discard(o)
     o.close()
 
-# to_sbs(): position reports only, with every field it can fill.
-assert bridge.to_sbs({"aprs_type": "status", "address": "A", "latitude": 1, "longitude": 2}) is None
-assert bridge.to_sbs({"aprs_type": "position", "address": "A", "latitude": None, "longitude": 2}) is None
-full = bridge.to_sbs(
-    {
-        "aprs_type": "position",
-        "address": "4080F6",
-        "address_type": bridge.ADDRESS_TYPE_ICAO,
-        "name": "g-abcd/x!",
-        "latitude": 51.5,
-        "longitude": -1.25,
-        "altitude": 1000,
-        "ground_speed": 185.2,
-        "track": 90.4,
-        "climb_rate": 1.016,
-    }
-)
-assert full is not None
-f = full.split(",")
-assert (f[4], f[10:16], f[16]) == ("4080F6", ["GABCDX", "3281", "100", "90", "51.50000", "-1.25000"], "200")
-bare = bridge.to_sbs({"aprs_type": "position", "address": "DD", "name": "!!", "latitude": 0, "longitude": 0})
-assert bare is not None
-assert bare.split(",")[10:14] == ["OGN", "", "", ""]  # unusable name -> OGN; unknown values left blank
-
-# sbs_send(): connect on demand, at most one attempt per 5s while ultrafeeder is down.
+# readsb_send(): connect on demand, at most one attempt per 5s while ultrafeeder is down.
 with mock.patch.object(socket, "create_connection", side_effect=OSError("refused")) as connect:
-    assert not bridge.sbs_send("a")
-    assert not bridge.sbs_send("b")  # inside the retry window: no second attempt
+    assert not bridge.readsb_send(b"a")
+    assert not bridge.readsb_send(b"b")  # inside the retry window: no second attempt
     assert connect.call_count == 1
-    assert bridge.connected["sbs"] is False
-bridge.sbs.retry_at = 0.0
+    assert bridge.connected["readsb"] is False
+connect.assert_called_with(("ultrafeeder", 32021), timeout=3)
+bridge.readsb.retry_at = 0.0
 up = fake_sock()
 with mock.patch.object(socket, "create_connection", return_value=up) as connect:
-    assert bridge.sbs_send("a")
-    assert bridge.sbs_send("b")  # reuses the open connection
+    assert bridge.readsb_send(b"a")
+    assert bridge.readsb_send(b"b")  # reuses the open connection
     assert connect.call_count == 1
-    assert bridge.connected["sbs"] is True
-up.sendall.assert_called_with(b"b\r\n")
+    assert bridge.connected["readsb"] is True
+up.sendall.assert_called_with(b"b")
 up.sendall.side_effect = OSError
-assert not bridge.sbs_send("c")  # dropped; the next line reconnects
+assert not bridge.readsb_send(b"c")  # dropped; the next record reconnects
 assert up.close.called
-assert bridge.sbs.sock is None
-assert bridge.connected["sbs"] is False
+assert bridge.readsb.sock is None
+assert bridge.connected["readsb"] is False
 
 # serve_output(): each stream reader is added with a 1s send timeout.
 srv, reader = fake_sock(), fake_sock()
 srv.accept.side_effect = [(reader, ("1.2.3.4", 5)), StopLoopError()]
 with mock.patch.object(socket, "create_server", return_value=srv) as create, contextlib.suppress(StopLoopError):
     bridge.serve_output(False)
-create.assert_called_with(("", 30013))
+create.assert_called_with(("", 30022))
 reader.settimeout.assert_called_with(1)
 assert reader in bridge.outputs[False]
 bridge.outputs[False].clear()
@@ -151,6 +159,8 @@ with urllib.request.urlopen(f"http://127.0.0.1:{http.server_address[1]}/", timeo
 http.shutdown()
 assert page["connected"] == bridge.connected
 assert page["age_s"]["uplink_tx"] == 0
+assert page["heard"] == {"local": bridge.heard[True], "network": bridge.heard[False]}
+assert page["withheld"] == {"no_tracking": 4}
 
 
 class FakeUp:
@@ -239,9 +249,9 @@ assert bridge.connected["decoder"] == 2
 bridge.connected["decoder"] = 0
 
 # serve_decoder(): banner (again as keepalive when quiet), login, then one position per
-# line however recv splits them; a full relay queue drops the line for the network only.
+# line however recv splits them. A line goes upstream only if process_beacon allows it
+# (not no-tracking), and a full relay queue drops it for the network only.
 full_q: queue.Queue[str] = queue.Queue(maxsize=1)
-full_q.put("x")
 logins: list[tuple[str, threading.Event]] = []
 
 
@@ -255,16 +265,17 @@ conn = fake_sock()
 conn.recv.side_effect = [
     TimeoutError,
     b"user MYCALL pass 1\n# c\n\n" + LINE.encode()[:20],
-    LINE.encode()[20:] + b"\n",
+    LINE.encode()[20:] + b"\nhidden\nlate\n",
     b"",
 ]
 with (
     mock.patch.object(bridge, "login", fake_login),
-    mock.patch.object(bridge, "process_beacon") as pb,
+    mock.patch.object(bridge, "process_beacon", side_effect=[True, False, True]) as pb,
 ):
     bridge.serve_decoder(conn)
 assert [line for line, _ in logins] == ["user MYCALL pass 1"]
-pb.assert_called_once_with(LINE, local=True)
+assert pb.call_args_list == [mock.call(x, local=True) for x in (LINE, "hidden", "late")]
+assert list(full_q.queue) == [LINE]  # "hidden" withheld; "late" found the queue full
 assert [c.args[0][:8] for c in conn.sendall.call_args_list] == [b"# aprsc "] * 2
 assert logins[0][1].is_set()
 assert conn.close.called
