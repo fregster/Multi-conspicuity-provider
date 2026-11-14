@@ -29,6 +29,12 @@ x-feeder: &feeder
 #                radar1090: watchdog's timeout stopping its tcpdump (else hangs)
 #   NET_RAW      radar1090: watchdog's tcpdump checking packets reach 1090MHz.uk
 
+# ultrafeeder (and the peer-map/stream readsbs built on it) is pinned: its readsb
+# decides what reaches the aggregators, and test_sbs_leak.sh passed on this digest
+# (readsb 3.16.16). ULTRAFEEDER_TAG overrides it; re-run that test first.
+x-ultrafeeder-image: &ultrafeeder-image "ghcr.io/sdr-enthusiasts/docker-adsb-ultrafeeder:${ULTRAFEEDER_TAG:-latest@\
+  sha256:8b1bea921696a75064d4eb087a5103817117b8da526567c277d641533008a384}"
+
 services:
   # Reverse proxy for external access to tar1090 over HTTPS. TLS is enabled
   # with no cert resolver configured, so Traefik falls back to its own
@@ -132,7 +138,7 @@ services:
       - CHOWN
       - SETUID
       - SETGID
-    image: ghcr.io/sdr-enthusiasts/docker-adsb-ultrafeeder:${ULTRAFEEDER_TAG:-latest}
+    image: *ultrafeeder-image
     container_name: ultrafeeder
     hostname: ultrafeeder
     entrypoint: ["/peers/peers.sh", "out", "/init"]
@@ -257,7 +263,7 @@ services:
       - CHOWN
       - SETUID
       - SETGID
-    image: ghcr.io/sdr-enthusiasts/docker-adsb-ultrafeeder:${ULTRAFEEDER_TAG:-latest}
+    image: *ultrafeeder-image
     container_name: peer-map
     hostname: peer-map
     entrypoint: ["/peers/peers.sh", "in", "/init"]
@@ -354,7 +360,7 @@ services:
   stream:
     <<: *hardened
     profiles: [stream, stream-tls]
-    image: ghcr.io/sdr-enthusiasts/docker-adsb-ultrafeeder:${ULTRAFEEDER_TAG:-latest}
+    image: *ultrafeeder-image
     container_name: stream
     user: "65534:65534"
     read_only: true
